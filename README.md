@@ -12,8 +12,8 @@ This repo will grow as a collection of small, focused tools. The first one helps
 
 - Overview
 - Current apps
-- Repo layout
-- Roadmap ideas
+  - Inventory Photo Capture (`inventory_app.py`)
+- Ideas, contributions?
 
 ## Overview
 
@@ -33,22 +33,7 @@ A tiny Gradio web app to quickly catalog physical items into “boxes” with ph
 - Group photos into Boxes (`Box_<id>`) and Items (`Item_<id>`)
 - Auto-generate item IDs or enter your own
 - Photos are saved as JPEGs into a simple, portable folder structure
-
-Tech: Python + Gradio. No database - just folders and files under `inventory/`.
-
 - Full guide: see `docs/inventory_app.md` for setup, running, usage, data layout, and HTTPS notes.
-
-## Repo layout
-
-```text
-life_store/
-  inventory_app.py      # Gradio app: Inventory Photo Capture
-  inventory/            # Data root (created at runtime; contains Box_*/Item_* folders)
-  requirements.txt      # Minimal deps (Gradio)
-  cert.pem, key.pem     # (Optional) TLS materials for local HTTPS
-  .venv/                # (Optional) local virtualenv
-  .gradio/              # Gradio runtime artifacts
-```
 
 ## Ideas, contributions?
 
