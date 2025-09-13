@@ -51,20 +51,20 @@ Open: `http://127.0.0.1:8443`
 
 ### Env vars (optional)
 
-You can override defaults via environment variables instead of CLI flags:
+You can override defaults via namespaced environment variables instead of CLI flags:
 
-- `HOST` (default: `127.0.0.1`)
-- `PORT` (default: `8443`)
-- `SSL_CERT` (path to cert PEM)
-- `SSL_KEY` (path to key PEM)
+- `LIFESTORE_HOST` (default: `127.0.0.1`)
+- `LIFESTORE_PORT` (default: `8443`)
+- `LIFESTORE_SSL_CERT` (path to cert PEM)
+- `LIFESTORE_SSL_KEY` (path to key PEM)
 
 Example:
 
 ```bash
-export HOST=0.0.0.0
-export PORT=8443
-export SSL_CERT=cert.pem
-export SSL_KEY=key.pem
+export LIFESTORE_HOST=0.0.0.0
+export LIFESTORE_PORT=8443
+export LIFESTORE_SSL_CERT=cert.pem
+export LIFESTORE_SSL_KEY=key.pem
 python inventory_photo_capture_app.py
 ```
 

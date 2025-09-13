@@ -131,10 +131,27 @@ with gr.Blocks() as demo:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Inventory photo capture app")
-    parser.add_argument("--host", default=os.environ.get("HOST", LAN_IP), help="Host/IP to bind")
-    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", PORT)), help="Port to bind")
-    parser.add_argument("--cert", default=os.environ.get("SSL_CERT", SSL_CERT), help="Path to SSL certificate (PEM)")
-    parser.add_argument("--key", default=os.environ.get("SSL_KEY", SSL_KEY), help="Path to SSL private key (PEM)")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("LIFESTORE_HOST", LAN_IP),
+        help="Host/IP to bind (env: LIFESTORE_HOST)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("LIFESTORE_PORT", PORT)),
+        help="Port to bind (env: LIFESTORE_PORT)",
+    )
+    parser.add_argument(
+        "--cert",
+        default=os.environ.get("LIFESTORE_SSL_CERT", SSL_CERT),
+        help="Path to SSL certificate (PEM) (env: LIFESTORE_SSL_CERT)",
+    )
+    parser.add_argument(
+        "--key",
+        default=os.environ.get("LIFESTORE_SSL_KEY", SSL_KEY),
+        help="Path to SSL private key (PEM) (env: LIFESTORE_SSL_KEY)",
+    )
     args = parser.parse_args()
 
     os.makedirs(INVENTORY_ROOT, exist_ok=True)

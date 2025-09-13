@@ -35,6 +35,12 @@ A tiny Gradio web app to quickly catalog physical items into “boxes” with ph
 - Photos are saved as JPEGs into a simple, portable folder structure
 - Full guide: see `docs/inventory_app.md` for setup, running, usage, data layout, and HTTPS notes.
 
+Env overrides
+
+- You can configure the app using these environment variables:
+  - `LIFESTORE_HOST`, `LIFESTORE_PORT`, `LIFESTORE_SSL_CERT`, `LIFESTORE_SSL_KEY`
+  - They map directly to the `--host`, `--port`, `--cert`, and `--key` CLI flags.
+
 ## Ideas, contributions?
 
 If you stumble onto this and it’s useful to you too, drop me a line or star the repo. Ideas are welcome! If you find a rough edge while using an app, you're welcome to submit a PR.

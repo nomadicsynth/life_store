@@ -20,7 +20,7 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
     - `python inventory_photo_capture_app.py --host 0.0.0.0 --port 8443 --cert cert.pem --key key.pem`
   - HTTP (local):
     - `python inventory_photo_capture_app.py --host 127.0.0.1 --port 8443`
-  - Env overrides: `HOST`, `PORT`, `SSL_CERT`, `SSL_KEY` map to the corresponding CLI flags.
+  - Env overrides: `LIFESTORE_HOST`, `LIFESTORE_PORT`, `LIFESTORE_SSL_CERT`, `LIFESTORE_SSL_KEY` map to the corresponding CLI flags.
   - TLS rules: both `--cert` and `--key` must exist or the app exits; providing only one is a fatal error.
 - Validate metadata
   - `python validate_items.py --inventory inventory --schema docs/item.schema.json --check-files --check-hashes`
