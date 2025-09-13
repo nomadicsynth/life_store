@@ -1,8 +1,9 @@
+import argparse
 import os
 import uuid
-import gradio as gr
 from datetime import datetime
-import argparse
+
+import gradio as gr
 
 # Root folder where everything is stored
 INVENTORY_ROOT = "inventory"
