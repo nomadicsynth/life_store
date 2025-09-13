@@ -12,7 +12,7 @@ This repo will grow as a collection of small, focused tools. The first one helps
 
 - Overview
 - Current apps
-  - Inventory Photo Capture (`inventory_app.py`)
+  - Inventory Photo Capture (`inventory_photo_capture_app.py`)
 - Ideas, contributions?
 
 ## Overview
@@ -25,7 +25,7 @@ This repo hosts independent, minimal apps. Each app tries to be:
 
 ## Current apps
 
-### Inventory Photo Capture (`inventory_app.py`)
+### Inventory Photo Capture (`inventory_photo_capture_app.py`)
 
 A tiny Gradio web app to quickly catalog physical items into “boxes” with photos.
 

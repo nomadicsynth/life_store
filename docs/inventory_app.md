@@ -30,7 +30,7 @@ pip install -r requirements.txt
 If you have a certificate/private key pair (PEM files):
 
 ```bash
-python inventory_app.py \
+python inventory_photo_capture_app.py \
   --host 0.0.0.0 \
   --port 8443 \
   --cert cert.pem \
@@ -44,7 +44,7 @@ Then open: `https://<your-host>:8443`
 You can also run without TLS for local use:
 
 ```bash
-python inventory_app.py --host 127.0.0.1 --port 8443
+python inventory_photo_capture_app.py --host 127.0.0.1 --port 8443
 ```
 
 Open: `http://127.0.0.1:8443`
@@ -65,7 +65,7 @@ export HOST=0.0.0.0
 export PORT=8443
 export SSL_CERT=cert.pem
 export SSL_KEY=key.pem
-python inventory_app.py
+python inventory_photo_capture_app.py
 ```
 
 ## Usage
