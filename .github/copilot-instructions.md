@@ -4,9 +4,12 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
 
 ## Big picture
 
-- This repo is a collection of tiny, independent tools. Today there are two main pieces:
+- This repo is a collection of tiny, independent tools. Main pieces:
   - `inventory_photo_capture_app.py` - a Gradio UI that saves photos of items into a simple folder layout. No DB; filesystem is the source of truth.
   - `validate_items.py` - a CLI validator for `item.json` files using `jsonschema` (Draft-07) with optional file-existence and SHA-256 checks.
+  - `priority_engine.py` - intelligent task prioritization system that learns what matters from embeddings and user behavior. Uses PCA/eigendecomposition to discover latent task dimensions and PDV (Preference Direction Vector) to learn preferences. No predefined properties.
+  - `chat_log_analyzer.py` - analyzes AI conversation logs to extract passive task prioritization feedback (the "journaling sneak-attack").
+  - `task_manager.py` / `task_manager_app.py` - task management with Gradio UI (work in progress, will integrate priority_engine).
 - Data model is file-first: items live under `inventory/Box_<BOX_ID>/Item_<ITEM_ID>/`. Photos are `photo_<YYYYMMDD>_<HHMMSS>_<index>.jpg`. Metadata (when present) is `item.json` defined by `docs/item.schema.json`.
 
 ## Daily workflows
@@ -25,6 +28,11 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
 - Validate metadata
   - `python validate_items.py --inventory inventory --schema docs/item.schema.json --check-files --check-hashes`
   - Exit codes: `0` all valid, `1` validation/check failures, `2` usage/unexpected error.
+- Priority engine & task manager
+  - Test priority engine: `python test_priority_engine.py`
+  - Example integration: `python example_integration.py`
+  - Requires Ollama running with `granite-embedding:278m` model for embeddings
+  - See `docs/priority_engine.md` for architecture details
 - Tests
   - `pytest tests/`
   - Pattern: tests call CLIs via a `main(argv)` function rather than spawning processes. Follow this for new CLIs.
@@ -51,12 +59,15 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
 
 ## Key references
 
-- App UI: `inventory_photo_capture_app.py`
+- Inventory app UI: `inventory_photo_capture_app.py`
 - Validator: `validate_items.py`
-- Tests: `tests/test_validate_items.py`
+- Priority engine: `priority_engine.py`, `chat_log_analyzer.py`
+- Tests: `tests/test_validate_items.py`, `test_priority_engine.py`
 - Schema docs: `docs/item_json_schema.md`
-- JSON Schema: `docs/item.schema.json`
-- Getting started: `AGENTS.md`, `docs/inventory_app.md` (remember the filename mismatch noted above)
+- JSON Schemas: `docs/item.schema.json`, `docs/task.schema.json`
+- Priority engine docs: `docs/priority_engine.md`, `docs/priority_engine_summary.md`
+- Getting started: `AGENTS.md`, `docs/inventory_app.md`
+- Reference implementation: `references/deep_research_tool.py` (dimension learning inspiration)
 
 ## Notes for future changes
 
