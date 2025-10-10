@@ -122,9 +122,9 @@ def write_json(path: Path, data: Dict[str, Any]) -> None:
 
 # ---------------- Core paths ----------------
 def db_path_from_env_or_arg(base: Optional[str]) -> Path:
-    # Allow env override; default to repo-local therapeutics/cannabis/cannabis_logistics.db
+    # Allow env override; default to repo-local data/therapeutics/cannabis/cannabis_logistics.db
     env_base = os.environ.get("THERAPEUTICS_CANNABIS_DB")
-    b = base or env_base or "therapeutics/cannabis/cannabis_logistics.db"
+    b = base or env_base or "data/therapeutics/cannabis/cannabis_logistics.db"
     return Path(b)
 
 
@@ -522,7 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
 	pi.add_argument("--safety-stock-days", type=int, required=True, dest="safety_stock_days", help="Safety stock buffer in days")
 	pi.add_argument("--thc-percent", type=float, default=None, dest="thc_percent")
 	pi.add_argument("--cbd-percent", type=float, default=None, dest="cbd_percent")
-	pi.add_argument("--base", default=None, help="Base DB path (default therapeutics/cannabis/cannabis_logistics.db)")
+	pi.add_argument("--base", default=None, help="Base DB path (default data/therapeutics/cannabis/cannabis_logistics.db)")
 	pi.add_argument("--force", action="store_true", help="Overwrite existing package metadata")
 	pi.set_defaults(func=cmd_init)
 

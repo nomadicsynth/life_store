@@ -6,7 +6,7 @@ from datetime import datetime
 import gradio as gr
 
 # Root folder where everything is stored
-INVENTORY_ROOT = "inventory"
+INVENTORY_ROOT = "data/inventory"
 
 LAN_IP = "127.0.0.1"
 PORT = 8443

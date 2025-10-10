@@ -10,7 +10,7 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
   - `priority_engine.py` - intelligent task prioritization system that learns what matters from embeddings and user behavior. Uses PCA/eigendecomposition to discover latent task dimensions and PDV (Preference Direction Vector) to learn preferences. No predefined properties.
   - `chat_log_analyzer.py` - analyzes AI conversation logs to extract passive task prioritization feedback (the "journaling sneak-attack").
   - `task_manager.py` / `task_manager_app.py` - task management with Gradio UI (work in progress, will integrate priority_engine).
-- Data model is file-first: items live under `inventory/Box_<BOX_ID>/Item_<ITEM_ID>/`. Photos are `photo_<YYYYMMDD>_<HHMMSS>_<index>.jpg`. Metadata (when present) is `item.json` defined by `docs/item.schema.json`.
+- Data model is file-first: items live under `data/inventory/Box_<BOX_ID>/Item_<ITEM_ID>/`. Photos are `photo_<YYYYMMDD>_<HHMMSS>_<index>.jpg`. Metadata (when present) is `item.json` defined by `docs/item.schema.json`.
 
 ## Daily workflows
 
@@ -26,7 +26,7 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
   - Env overrides: `LIFESTORE_HOST`, `LIFESTORE_PORT`, `LIFESTORE_SSL_CERT`, `LIFESTORE_SSL_KEY` map to the corresponding CLI flags.
   - TLS rules: both `--cert` and `--key` must exist or the app exits; providing only one is a fatal error.
 - Validate metadata
-  - `python validate_items.py --inventory inventory --schema docs/item.schema.json --check-files --check-hashes`
+  - `python validate_items.py --inventory data/inventory --schema docs/item.schema.json --check-files --check-hashes`
   - Exit codes: `0` all valid, `1` validation/check failures, `2` usage/unexpected error.
 - Priority engine & task manager
   - Test priority engine: `python test_priority_engine.py`
@@ -40,7 +40,7 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
 ## Architecture & patterns
 
 - Filesystem layout
-  - Root: `inventory/`
+  - Root: `data/inventory/`
   - Boxes: `Box_<BOX_ID>/` (IDs are free-form but assumed `[A-Za-z0-9_-]`).
   - Items: `Item_<ITEM_ID>/` containing photos and, optionally, `item.json`.
 - UI app behavior

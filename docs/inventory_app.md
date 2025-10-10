@@ -5,7 +5,7 @@ A tiny Gradio web app to quickly catalog physical items into boxes with photos. 
 - Capture photos from your webcam/phone camera
 - Group photos into Boxes (`Box_<id>`) and Items (`Item_<id>`)
 - Auto-generate item IDs or enter your own
-- Photos saved as JPEGs under `inventory/`
+- Photos saved as JPEGs under `data/inventory/`
 
 Tech: Python + Gradio.
 
@@ -89,10 +89,10 @@ Notes
 
 ## Data layout
 
-The app writes under `inventory/` using a predictable, portable structure:
+The app writes under `data/inventory/` using a predictable, portable structure:
 
 ```text
-inventory/
+data/inventory/
   Box_<BOX_ID>/
     Item_<ITEM_ID>/
       photo_<YYYYMMDD>_<HHMMSS>_1.jpg

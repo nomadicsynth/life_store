@@ -33,7 +33,7 @@ except Exception as e:  # pragma: no cover
     sys.exit(2)
 
 
-DEFAULT_INVENTORY = os.environ.get("INVENTORY_ROOT", "inventory")
+DEFAULT_INVENTORY = os.environ.get("INVENTORY_ROOT", "data/inventory")
 DEFAULT_SCHEMA = os.path.join("docs", "item.schema.json")
 
 
@@ -117,7 +117,7 @@ def validate_item(path: str, validator: Draft7Validator, check_files: bool, chec
 
 def main(argv: List[str]) -> int:
     ap = argparse.ArgumentParser(description="Validate inventory item.json files")
-    ap.add_argument("--inventory", default=DEFAULT_INVENTORY, help="Inventory root directory (default: inventory)")
+    ap.add_argument("--inventory", default=DEFAULT_INVENTORY, help="Inventory root directory (default: data/inventory)")
     ap.add_argument("--schema", default=DEFAULT_SCHEMA, help="Path to JSON Schema file (default: docs/item.schema.json)")
     ap.add_argument("--check-files", action="store_true", help="Check that referenced photo files exist")
     ap.add_argument("--check-hashes", action="store_true", help="Verify SHA-256 hashes of photos (implies --check-files)")

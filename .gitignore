@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 inventory/
+data/
 *.pem
 .cache/
 *.db
