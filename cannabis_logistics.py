@@ -18,6 +18,7 @@ import json
 import os
 import sqlite3
 import sys
+import math
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -344,7 +345,7 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 	# Reorder date is depletion minus (lead + safety). If that is before as_of, reorder now.
 	buffer_days = meta.lead_time_days + meta.safety_stock_days
 	reorder_dt = depletion_dt - timedelta(days=buffer_days)
-	reorder_in = (reorder_dt - as_of).total_seconds() / 86400.0
+	reorder_in = math.floor((reorder_dt - as_of).total_seconds() / 86400.0)
 	reorder_now = reorder_in <= 0
 
 	result.update(
