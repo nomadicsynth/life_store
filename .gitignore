@@ -6,3 +6,4 @@ data/
 *.pem
 .cache/
 *.db
+.env
