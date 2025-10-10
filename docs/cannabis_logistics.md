@@ -1,11 +1,11 @@
 # Medical cannabis logistics CLI
 
-Track periodic package weigh-ins, estimate average usage, and forecast reorder dates using a file-first, dependency-free workflow.
+Track periodic package weigh-ins, estimate average usage, and forecast reorder dates using SQLite database storage.
 
-- Storage: `therapeutics/cannabis/Package_<ID>/`
-  - `product.json` — package metadata
-  - `weighins/WeighIn_<YYYYMMDDThhmmssZ>.json` — individual weigh-in entries
-- Env override: `THERAPEUTICS_CANNABIS_DIR` can change the base path.
+- Storage: SQLite database at `data/therapeutics/cannabis/cannabis_logistics.db`
+  - `packages` table — package metadata
+  - `weighins` table — individual weigh-in entries
+- Env override: `THERAPEUTICS_CANNABIS_DB` can change the database path.
 - CLI exposes `main(argv)` for tests and can be executed as a script.
 
 ## Subcommands
@@ -22,7 +22,7 @@ Track periodic package weigh-ins, estimate average usage, and forecast reorder d
   - Optional: `--as-of`, `--json`, `--base`
 
 - list
-  - Lists all packages under the base directory, with current status
+  - Lists all packages in the database, with current status
   - Options: `--json`, `--base`
 
 - check
