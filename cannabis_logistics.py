@@ -25,6 +25,9 @@ from pathlib import Path
 from statistics import median
 from typing import List, Optional, Tuple, Dict, Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------------- Database schema ----------------
 def create_tables(conn: sqlite3.Connection) -> None:
@@ -513,6 +516,9 @@ def build_parser() -> argparse.ArgumentParser:
 	p = argparse.ArgumentParser(description="Medical cannabis logistics CLI")
 	sub = p.add_subparsers(dest="cmd", required=True)
 
+	default_lead_time = int(os.environ.get('CANNABIS_LEAD_TIME_DAYS', 0))
+	default_safety_stock = int(os.environ.get('CANNABIS_SAFETY_STOCK_DAYS', 0))
+
 	# init
 	pi = sub.add_parser("init", help="Initialize a package")
 	pi.add_argument("--id", required=False, help="Package ID (free-form); auto-generated from name and date if omitted")
@@ -520,8 +526,8 @@ def build_parser() -> argparse.ArgumentParser:
 	pi.add_argument("--form", required=True, help="Form: flower|oil|edible|tincture|capsule|concentrate")
 	pi.add_argument("--initial-net-g", type=float, default=None, dest="initial_net_g", help="Initial net mass in grams")
 	pi.add_argument("--initial-gross-g", type=float, default=None, dest="initial_gross_g", help="Initial gross mass (g)")
-	pi.add_argument("--lead-time-days", type=int, required=True, default=0, dest="lead_time_days", help="Supplier lead time in days")
-	pi.add_argument("--safety-stock-days", type=int, default=0, dest="safety_stock_days", help="Safety stock buffer in days")
+	pi.add_argument("--lead-time-days", type=int, default=default_lead_time, dest="lead_time_days", help="Supplier lead time in days (default from CANNABIS_LEAD_TIME_DAYS env var)")
+	pi.add_argument("--safety-stock-days", type=int, default=default_safety_stock, dest="safety_stock_days", help="Safety stock buffer in days (default from CANNABIS_SAFETY_STOCK_DAYS env var)")
 	pi.add_argument("--thc-percent", type=float, default=None, dest="thc_percent")
 	pi.add_argument("--cbd-percent", type=float, default=None, dest="cbd_percent")
 	pi.add_argument("--base", default=None, help="Base DB path (default data/therapeutics/cannabis/cannabis_logistics.db)")
@@ -578,4 +584,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
 	sys.exit(main())
-
