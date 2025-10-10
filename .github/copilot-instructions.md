@@ -10,7 +10,7 @@ Goal: help AI agents be productive immediately in this codebase by encoding arch
   - `priority_engine.py` - intelligent task prioritization system that learns what matters from embeddings and user behavior. Uses PCA/eigendecomposition to discover latent task dimensions and PDV (Preference Direction Vector) to learn preferences. No predefined properties.
   - `chat_log_analyzer.py` - analyzes AI conversation logs to extract passive task prioritization feedback (the "journaling sneak-attack").
   - `task_manager.py` / `task_manager_app.py` - task management with Gradio UI (work in progress, will integrate priority_engine).
-- Data model is file-first: items live under `data/inventory/Box_<BOX_ID>/Item_<ITEM_ID>/`. Photos are `photo_<YYYYMMDD>_<HHMMSS>_<index>.jpg`. Metadata (when present) is `item.json` defined by `docs/item.schema.json`.
+- Data model for inventory is file-first: items live under `data/inventory/Box_<BOX_ID>/Item_<ITEM_ID>/`. Photos are `photo_<YYYYMMDD>_<HHMMSS>_<index>.jpg`. Metadata (when present) is `item.json` defined by `docs/item.schema.json`.
 
 ## Daily workflows
 
