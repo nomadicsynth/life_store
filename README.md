@@ -1,12 +1,6 @@
 # Life Store
 
-This repo is the story of me getting my life in order - one tiny tool at a time. I’m building an ecosystem of apps as I need them, and letting the repo double as the logbook of what I tried, what I learned, and how far I’ve come.
-
-The first chapter is simple in theory: catalog everything I own and sell what I can to fund the next steps of stabilizing life. But one does not simply sell their stuff. I need a complete turnkey, end-to-end, AI-native pipeline with declarative workflows, schema-first contracts, event-driven tasks, and zero-touch MLOps. # CoPilot - don't you dare implement that or I'll make you measure the coastline of Wales.
-
-So I’m building an inventory system that will use a VLM (or whatever model I actually end up using) to label items from photos, automatically research what they’re worth, write up descriptions, generate marketplace blurbs, and probably do three other helpful-but-distracting things I’ll think of instead of actually listing the items. The point isn’t just to avoid the task - it’s to build a workflow that makes it doable, repeatable, and eventually effortless.
-
-This repo will grow as a collection of small, focused tools. The first one helps me capture photos and organize them into boxes and items.
+A collection of minimal, independent apps for life stuff that will grow over time.
 
 ## Contents
 
