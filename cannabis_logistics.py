@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-Medical cannabis logistics CLI: periodic weigh-ins -> average usage -> reorder forec# ---------------- Data model ----------------choices
-- File-first storage under therapeutics/cannabis/Package_<ID>/
-- JSON-only metadata and entries; no DB
-- Subcommands: init, weigh, report
+Medical cannabis logistics CLI: periodic weigh-ins -> average usage -> reorder forecast
+- Subcommands: init, weigh, report, list, check
 - Exposes main(argv) for easy testing (repo convention)
 
 Exit codes
@@ -87,8 +85,8 @@ class PackageMeta:
 	id: str
 	name: str
 	form: str  # flower | oil | edible | tincture | capsule | concentrate
-	initial_net_g: Optional[float]
-	initial_gross_g: Optional[float]
+	initial_net_g: float
+	initial_gross_g: float
 	lead_time_days: int
 	safety_stock_days: int
 	thc_percent: Optional[float] = None
@@ -210,7 +208,7 @@ def previous_net_at_or_before(meta: PackageMeta, db_path: Path, ts: datetime) ->
 		return latest_wi[1]
 
 	# No weigh-ins; consider initial snapshot
-	if meta.initial_gross_g is not None and meta.created_at:
+	if meta.created_at:
 		try:
 			t0 = parse_iso8601_z(meta.created_at)
 			if t0 <= ts:
@@ -236,11 +234,11 @@ def previous_gross_at_or_before(meta: PackageMeta, db_path: Path, ts: datetime) 
 			continue
 	if latest_wi is not None:
 		return latest_wi[1]
-	if meta.initial_gross_g is not None and meta.created_at:
+	if meta.created_at:
 		try:
 			t0 = parse_iso8601_z(meta.created_at)
 			if t0 <= ts:
-				return float(meta.initial_gross_g)
+				return meta.initial_gross_g
 		except Exception:
 			pass
 	return None
@@ -274,7 +272,7 @@ def usage_rate_g_per_day(meta: PackageMeta, weighins: List[WeighIn]) -> Optional
 	points: List[Tuple[datetime, float]]
 	if len(wi_points) >= 2:
 		points = wi_points
-	elif len(wi_points) == 1 and meta.initial_gross_g is not None and meta.created_at:
+	elif len(wi_points) == 1 and meta.created_at:
 		# Use the single weigh-in and the initial snapshot
 		try:
 			t0 = parse_iso8601_z(meta.created_at)
@@ -512,8 +510,8 @@ def build_parser() -> argparse.ArgumentParser:
 	pi.add_argument("--id", required=False, help="Package ID (free-form); auto-generated from name and date if omitted")
 	pi.add_argument("--name", required=True, help="Display name")
 	pi.add_argument("--form", required=True, help="Form: flower|oil|edible|tincture|capsule|concentrate")
-	pi.add_argument("--initial-net-g", type=float, default=None, dest="initial_net_g", help="Initial net mass in grams")
-	pi.add_argument("--initial-gross-g", type=float, default=None, dest="initial_gross_g", help="Initial gross mass (g)")
+	pi.add_argument("--initial-net-g", type=float, required=True, dest="initial_net_g", help="Initial net mass in grams (required)")
+	pi.add_argument("--initial-gross-g", type=float, required=True, dest="initial_gross_g", help="Initial gross mass (g) (required)")
 	pi.add_argument("--lead-time-days", type=int, default=default_lead_time, dest="lead_time_days", help="Supplier lead time in days (default from CANNABIS_LEAD_TIME_DAYS env var)")
 	pi.add_argument("--safety-stock-days", type=int, default=default_safety_stock, dest="safety_stock_days", help="Safety stock buffer in days (default from CANNABIS_SAFETY_STOCK_DAYS env var)")
 	pi.add_argument("--thc-percent", type=float, default=None, dest="thc_percent")

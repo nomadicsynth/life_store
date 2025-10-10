@@ -80,12 +80,14 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
 
 def test_report_handles_no_usage(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "cannabis_logistics.db"
-    # init only, no weigh-ins and no initial
+    # init only, no weigh-ins
     rc = cli.main([
         "init",
         "--id", "empty",
         "--name", "Empty",
         "--form", "flower",
+        "--initial-net-g", "10",
+        "--initial-gross-g", "20",
         "--lead-time-days", "3",
         "--safety-stock-days", "2",
         "--base", str(base_db),
@@ -210,6 +212,8 @@ def test_init_with_created_at(tmp_path: Path):
         "--id", "past_pkg",
         "--name", "Past Package",
         "--form", "flower",
+        "--initial-net-g", "15",
+        "--initial-gross-g", "25",
         "--lead-time-days", "5",
         "--safety-stock-days", "2",
         "--created-at", custom_created_at,
