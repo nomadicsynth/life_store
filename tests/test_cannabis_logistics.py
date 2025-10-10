@@ -198,3 +198,100 @@ def test_weigh_increase_rejected(tmp_path: Path):
     t_mid = t1 + timedelta(days=1)
     rc2 = cli.main(["weigh", "--id", "X", "--gross-g", "28.5", "--timestamp", iso(t_mid), "--base", str(base_db)])
     assert rc2 == 1
+
+
+def test_init_with_created_at(tmp_path: Path):
+    base_db = tmp_path / "therapeutics" / "cannabis" / "cannabis_logistics.db"
+    custom_created_at = "2025-09-15T10:30:00Z"
+    
+    # init with custom created_at
+    rc = cli.main([
+        "init",
+        "--id", "past_pkg",
+        "--name", "Past Package",
+        "--form", "flower",
+        "--lead-time-days", "5",
+        "--safety-stock-days", "2",
+        "--created-at", custom_created_at,
+        "--base", str(base_db),
+    ])
+    assert rc == 0
+    
+    # report JSON to check created_at is used
+    class Capturer:
+        def __init__(self): self.lines = []
+        def write(self, s): self.lines.append(s)
+        def flush(self): pass
+    import sys
+    cap = Capturer()
+    old_stdout = sys.stdout
+    sys.stdout = cap
+    try:
+        rc = cli.main(["report", "--id", "past_pkg", "--json", "--base", str(base_db)])
+    finally:
+        sys.stdout = old_stdout
+    assert rc == 0
+    
+    out = json.loads("".join(cap.lines))
+    assert out["last_weigh_in_at"] == custom_created_at  # since no weigh-ins, uses created_at
+    
+    # add a weigh-in to test usage calculation from custom created_at
+    weigh_at = "2025-09-20T10:30:00Z"  # 5 days later
+    rc = cli.main([
+        "weigh",
+        "--id", "past_pkg",
+        "--gross-g", "25.0",  # no initial, so net=25.0
+        "--timestamp", weigh_at,
+        "--base", str(base_db),
+    ])
+    assert rc == 0
+    
+    # report again to check usage is not calculated (no initial_net_g)
+    cap2 = Capturer()
+    sys.stdout = cap2
+    try:
+        rc = cli.main(["report", "--id", "past_pkg", "--json", "--base", str(base_db)])
+    finally:
+        sys.stdout = old_stdout
+    assert rc == 0
+    
+    out2 = json.loads("".join(cap2.lines))
+    assert out2["usage_g_per_day"] is None  # no initial_net_g
+    
+    # re-init with initial_net_g and initial_gross_g to enable usage calc
+    rc = cli.main([
+        "init",
+        "--id", "past_pkg2",
+        "--name", "Past Package 2",
+        "--form", "flower",
+        "--initial-net-g", "30",
+        "--initial-gross-g", "31",
+        "--lead-time-days", "5",
+        "--safety-stock-days", "2",
+        "--created-at", custom_created_at,
+        "--force",
+        "--base", str(base_db),
+    ])
+    assert rc == 0
+    
+    # add weigh-in
+    rc = cli.main([
+        "weigh",
+        "--id", "past_pkg2",
+        "--gross-g", "26.0",  # net=25.0 (tare=1.0)
+        "--timestamp", weigh_at,
+        "--base", str(base_db),
+    ])
+    assert rc == 0
+    
+    # report to check usage: (30 - 25) / 5 days = 1.0
+    cap3 = Capturer()
+    sys.stdout = cap3
+    try:
+        rc = cli.main(["report", "--id", "past_pkg2", "--json", "--base", str(base_db)])
+    finally:
+        sys.stdout = old_stdout
+    assert rc == 0
+    
+    out3 = json.loads("".join(cap3.lines))
+    assert out3["usage_g_per_day"] == 1.0

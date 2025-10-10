@@ -372,7 +372,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 		conn.close()
 		return 1
 
-	created_at = to_iso_z(now_utc())
+	if args.created_at:
+		created_at = to_iso_z(parse_iso8601_z(args.created_at))
+	else:
+		created_at = to_iso_z(now_utc())
 	conn.execute("INSERT OR REPLACE INTO packages (id, name, form, initial_net_g, initial_gross_g, lead_time_days, safety_stock_days, thc_percent, cbd_percent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, args.lead_time_days, args.safety_stock_days, args.thc_percent, args.cbd_percent, created_at))
 	conn.commit()
@@ -517,11 +520,12 @@ def build_parser() -> argparse.ArgumentParser:
 	pi.add_argument("--initial-net-g", type=float, default=None, dest="initial_net_g", help="Initial net mass in grams")
 	pi.add_argument("--initial-gross-g", type=float, default=None, dest="initial_gross_g", help="Initial gross mass (g)")
 	pi.add_argument("--lead-time-days", type=int, required=True, default=0, dest="lead_time_days", help="Supplier lead time in days")
-	pi.add_argument("--safety-stock-days", type=int, required=True, default=0, dest="safety_stock_days", help="Safety stock buffer in days")
+	pi.add_argument("--safety-stock-days", type=int, default=0, dest="safety_stock_days", help="Safety stock buffer in days")
 	pi.add_argument("--thc-percent", type=float, default=None, dest="thc_percent")
 	pi.add_argument("--cbd-percent", type=float, default=None, dest="cbd_percent")
 	pi.add_argument("--base", default=None, help="Base DB path (default data/therapeutics/cannabis/cannabis_logistics.db)")
 	pi.add_argument("--force", action="store_true", help="Overwrite existing package metadata")
+	pi.add_argument("--created-at", default=None, help="ISO-8601 timestamp for package creation; default now UTC")
 	pi.set_defaults(func=cmd_init)
 
 	# weigh
