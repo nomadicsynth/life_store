@@ -20,7 +20,7 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
         "--id", "testpkg",
         "--name", "Test Pkg",
         "--form", "flower",
-        "--tare-g", "10",
+        "--initial-net-g", "18",
         "--initial-gross-g", "28",
         "--lead-time-days", "5",
         "--safety-stock-days", "2",
@@ -116,7 +116,7 @@ def test_list_and_check_commands(tmp_path: Path):
     # Package A: has usage, likely not reorder yet
     rc = cli.main([
         "init", "--id", "A", "--name", "Pkg A", "--form", "flower",
-        "--tare-g", "10", "--initial-gross-g", "28", "--lead-time-days", "3", "--safety-stock-days", "2",
+        "--initial-net-g", "18", "--initial-gross-g", "28", "--lead-time-days", "3", "--safety-stock-days", "2",
         "--base", str(base_db),
     ])
     assert rc == 0
@@ -129,7 +129,7 @@ def test_list_and_check_commands(tmp_path: Path):
     # Package B: small remaining, force reorder
     rc = cli.main([
         "init", "--id", "B", "--name", "Pkg B", "--form", "flower",
-        "--tare-g", "10", "--initial-gross-g", "18", "--lead-time-days", "7", "--safety-stock-days", "3",
+        "--initial-net-g", "8", "--initial-gross-g", "18", "--lead-time-days", "7", "--safety-stock-days", "3",
         "--base", str(base_db),
     ])
     assert rc == 0
@@ -183,7 +183,7 @@ def test_weigh_increase_rejected(tmp_path: Path):
     # init with tare and initial
     assert cli.main([
         "init", "--id", "X", "--name", "Pkg X", "--form", "flower",
-        "--tare-g", "10", "--initial-gross-g", "30", "--lead-time-days", "3", "--safety-stock-days", "2",
+        "--initial-net-g", "20", "--initial-gross-g", "30", "--lead-time-days", "3", "--safety-stock-days", "2",
         "--base", str(base_db),
     ]) == 0
     # weigh at t1 net 18g

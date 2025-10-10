@@ -32,7 +32,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             form TEXT NOT NULL,
-            tare_g REAL,
+            initial_net_g REAL,
             initial_gross_g REAL,
             lead_time_days INTEGER NOT NULL,
             safety_stock_days INTEGER NOT NULL,
@@ -83,7 +83,7 @@ class PackageMeta:
 	id: str
 	name: str
 	form: str  # flower | oil | edible | tincture | capsule | concentrate
-	tare_g: Optional[float]
+	initial_net_g: Optional[float]
 	initial_gross_g: Optional[float]
 	lead_time_days: int
 	safety_stock_days: int
@@ -91,20 +91,18 @@ class PackageMeta:
 	cbd_percent: Optional[float] = None
 	created_at: str = ""
 
-	@property
-	def initial_net_g(self) -> Optional[float]:
-		if self.initial_gross_g is None:
-			return None
-		if self.tare_g is None:
-			return self.initial_gross_g
-		return max(self.initial_gross_g - self.tare_g, 0.0)
-
 
 @dataclass
 class WeighIn:
 	timestamp: str  # ISO-8601 Z
-	gross_g: float  # if tare_g is None, this is treated as net
+	gross_g: float  # gross weight of the jar
 	note: Optional[str] = None
+
+
+def get_tare(meta: PackageMeta) -> Optional[float]:
+	if meta.initial_gross_g is not None and meta.initial_net_g is not None:
+		return meta.initial_gross_g - meta.initial_net_g
+	return None
 
 
 # ---------------- IO helpers ----------------
@@ -144,7 +142,7 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
         id=row[0],
         name=row[1],
         form=row[2],
-        tare_g=row[3],
+        initial_net_g=row[3],
         initial_gross_g=row[4],
         lead_time_days=row[5],
         safety_stock_days=row[6],
@@ -165,7 +163,7 @@ def iter_packages(db_path: Path) -> List[PackageMeta]:
             id=row[0],
             name=row[1],
             form=row[2],
-            tare_g=row[3],
+            initial_net_g=row[3],
             initial_gross_g=row[4],
             lead_time_days=row[5],
             safety_stock_days=row[6],
@@ -199,7 +197,7 @@ def previous_net_at_or_before(meta: PackageMeta, db_path: Path, ts: datetime) ->
 		try:
 			tw = parse_iso8601_z(w.timestamp)
 			if tw <= ts:
-				nw = net_from_gross(w.gross_g, meta.tare_g)
+				nw = net_from_gross(w.gross_g, get_tare(meta))
 				if latest_wi is None or tw > latest_wi[0]:
 					latest_wi = (tw, nw)
 		except Exception:
@@ -212,7 +210,7 @@ def previous_net_at_or_before(meta: PackageMeta, db_path: Path, ts: datetime) ->
 		try:
 			t0 = parse_iso8601_z(meta.created_at)
 			if t0 <= ts:
-				return net_from_gross(meta.initial_gross_g, meta.tare_g)
+				return meta.initial_net_g
 		except Exception:
 			pass
 	return None
@@ -262,7 +260,7 @@ def usage_rate_g_per_day(meta: PackageMeta, weighins: List[WeighIn]) -> Optional
 	for w in weighins:
 		try:
 			t = parse_iso8601_z(w.timestamp)
-			n = net_from_gross(w.gross_g, meta.tare_g)
+			n = net_from_gross(w.gross_g, get_tare(meta))
 			wi_points.append((t, n))
 		except Exception:
 			continue
@@ -276,7 +274,7 @@ def usage_rate_g_per_day(meta: PackageMeta, weighins: List[WeighIn]) -> Optional
 		# Use the single weigh-in and the initial snapshot
 		try:
 			t0 = parse_iso8601_z(meta.created_at)
-			n0 = net_from_gross(meta.initial_gross_g, meta.tare_g)
+			n0 = meta.initial_net_g
 			points = sorted([wi_points[0], (t0, n0)], key=lambda x: x[0])
 		except Exception:
 			return None
@@ -307,11 +305,11 @@ def latest_state(meta: PackageMeta, weighins: List[WeighIn]) -> Tuple[datetime, 
 	if weighins:
 		w = max(weighins, key=lambda wi: parse_iso8601_z(wi.timestamp))
 		t = parse_iso8601_z(w.timestamp)
-		n = net_from_gross(w.gross_g, meta.tare_g)
+		n = net_from_gross(w.gross_g, get_tare(meta))
 		return t, n
 	# Fallback
 	t0 = parse_iso8601_z(meta.created_at) if meta.created_at else now_utc()
-	n0 = net_from_gross(meta.initial_gross_g or 0.0, meta.tare_g)
+	n0 = meta.initial_net_g or 0.0
 	return t0, n0
 
 
@@ -375,8 +373,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 		return 1
 
 	created_at = to_iso_z(now_utc())
-	conn.execute("INSERT OR REPLACE INTO packages (id, name, form, tare_g, initial_gross_g, lead_time_days, safety_stock_days, thc_percent, cbd_percent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		(args.id, args.name, args.form, args.tare_g, args.initial_gross_g, args.lead_time_days, args.safety_stock_days, args.thc_percent, args.cbd_percent, created_at))
+	conn.execute("INSERT OR REPLACE INTO packages (id, name, form, initial_net_g, initial_gross_g, lead_time_days, safety_stock_days, thc_percent, cbd_percent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, args.lead_time_days, args.safety_stock_days, args.thc_percent, args.cbd_percent, created_at))
 	conn.commit()
 	conn.close()
 	print(f"Initialized package {args.id}")
@@ -405,7 +403,7 @@ def cmd_weigh(args: argparse.Namespace) -> int:
 	conn.execute("INSERT INTO weighins (package_id, timestamp, gross_g, note) VALUES (?, ?, ?, ?)", (args.id, to_iso_z(ts), args.gross_g, args.note))
 	conn.commit()
 	conn.close()
-	new_net = net_from_gross(args.gross_g, meta.tare_g)
+	new_net = net_from_gross(args.gross_g, get_tare(meta))
 	print(f"Recorded weigh-in for {args.id}: gross={args.gross_g:.3f}g net={new_net:.3f}g @ {to_iso_z(ts)}")
 	return 0
 
@@ -516,7 +514,7 @@ def build_parser() -> argparse.ArgumentParser:
 	pi.add_argument("--id", required=False, help="Package ID (free-form); auto-generated from name and date if omitted")
 	pi.add_argument("--name", required=True, help="Display name")
 	pi.add_argument("--form", required=True, help="Form: flower|oil|edible|tincture|capsule|concentrate")
-	pi.add_argument("--tare-g", type=float, default=None, dest="tare_g", help="Packaging mass in grams (tare)")
+	pi.add_argument("--initial-net-g", type=float, default=None, dest="initial_net_g", help="Initial net mass in grams")
 	pi.add_argument("--initial-gross-g", type=float, default=None, dest="initial_gross_g", help="Initial gross mass (g)")
 	pi.add_argument("--lead-time-days", type=int, required=True, default=0, dest="lead_time_days", help="Supplier lead time in days")
 	pi.add_argument("--safety-stock-days", type=int, required=True, default=0, dest="safety_stock_days", help="Safety stock buffer in days")
