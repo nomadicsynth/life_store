@@ -499,18 +499,6 @@ def cmd_check(args: argparse.Namespace) -> int:
 	# Exit code: 1 if any need reorder, else 0
 	return 1 if any_reorder else 0
 
-	# Human-friendly output
-	# TODO: unreachable - fix.
-	print(f"Package: {data['package_id']}")
-	print(f"As of:   {data['as_of']}")
-	print(f"Last weigh-in: {data['last_weigh_in_at']}")
-	print(f"Current net: {data['current_net_g']} g")
-	print(f"Usage: {data['usage_g_per_day']} g/day")
-	print(f"Depletion: {data['estimated_depletion_date']}")
-	print(f"Reorder date: {data['reorder_date']}  (in {data['reorder_in_days']} days)")
-	print("Action: REORDER NOW" if data["reorder_now"] else "Action: OK")
-	return 0
-
 
 def build_parser() -> argparse.ArgumentParser:
 	p = argparse.ArgumentParser(description="Medical cannabis logistics CLI")
