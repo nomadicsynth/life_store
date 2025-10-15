@@ -40,7 +40,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             safety_stock_days INTEGER NOT NULL,
             thc_percent REAL,
             cbd_percent REAL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            finished INTEGER DEFAULT 0
         )
     """)
     conn.execute("""
@@ -53,6 +54,11 @@ def create_tables(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (package_id) REFERENCES packages(id)
         )
     """)
+    # Add finished column if it doesn't exist (for migration)
+    try:
+        conn.execute("ALTER TABLE packages ADD COLUMN finished INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     conn.commit()
 
 
@@ -92,6 +98,7 @@ class PackageMeta:
 	thc_percent: Optional[float] = None
 	cbd_percent: Optional[float] = None
 	created_at: str = ""
+	finished: bool = False
 
 
 @dataclass
@@ -150,7 +157,8 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
         safety_stock_days=row[6],
         thc_percent=row[7],
         cbd_percent=row[8],
-        created_at=row[9]
+        created_at=row[9],
+        finished=bool(row[10]) if len(row) > 10 else False
     )
     conn.close()
     return meta
@@ -171,7 +179,8 @@ def iter_packages(db_path: Path) -> List[PackageMeta]:
             safety_stock_days=row[6],
             thc_percent=row[7],
             cbd_percent=row[8],
-            created_at=row[9]
+            created_at=row[9],
+            finished=bool(row[10]) if len(row) > 10 else False
         )
         packages.append(meta)
     conn.close()
@@ -328,7 +337,19 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 		"usage_g_per_day": round(rate, 4) if rate is not None else None,
 		"lead_time_days": meta.lead_time_days,
 		"safety_stock_days": meta.safety_stock_days,
+		"finished": meta.finished,
 	}
+
+	if meta.finished:
+		result.update(
+			{
+				"estimated_depletion_date": None,
+				"reorder_date": None,
+				"reorder_in_days": None,
+				"reorder_now": False,
+			}
+		)
+		return result
 
 	if rate is None or rate <= 0:
 		result.update(
@@ -378,8 +399,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 		created_at = to_iso_z(parse_iso8601_z(args.created_at))
 	else:
 		created_at = to_iso_z(now_utc())
-	conn.execute("INSERT OR REPLACE INTO packages (id, name, form, initial_net_g, initial_gross_g, lead_time_days, safety_stock_days, thc_percent, cbd_percent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, args.lead_time_days, args.safety_stock_days, args.thc_percent, args.cbd_percent, created_at))
+	conn.execute("INSERT OR REPLACE INTO packages (id, name, form, initial_net_g, initial_gross_g, lead_time_days, safety_stock_days, thc_percent, cbd_percent, created_at, finished) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, args.lead_time_days, args.safety_stock_days, args.thc_percent, args.cbd_percent, created_at, 0))
 	conn.commit()
 	conn.close()
 	print(f"Initialized package {args.id}")
@@ -406,10 +427,14 @@ def cmd_weigh(args: argparse.Namespace) -> int:
 
 	conn = get_db_connection(db_path)
 	conn.execute("INSERT INTO weighins (package_id, timestamp, gross_g, note) VALUES (?, ?, ?, ?)", (args.id, to_iso_z(ts), args.gross_g, args.note))
+	if args.finished:
+		conn.execute("UPDATE packages SET finished = 1 WHERE id = ?", (args.id,))
 	conn.commit()
 	conn.close()
 	new_net = net_from_gross(args.gross_g, get_tare(meta))
 	print(f"Recorded weigh-in for {args.id}: gross={args.gross_g:.3f}g net={new_net:.3f}g @ {to_iso_z(ts)}")
+	if args.finished:
+		print(f"Marked package {args.id} as finished.")
 	return 0
 
 
@@ -437,7 +462,13 @@ def cmd_report(args: argparse.Namespace) -> int:
 	print(f"Usage: {data['usage_g_per_day']} g/day")
 	print(f"Depletion: {data['estimated_depletion_date']}")
 	print(f"Reorder date: {data['reorder_date']}  (in {data['reorder_in_days']} days)")
-	print("Action: REORDER NOW" if data["reorder_now"] else "Action: OK")
+	if data.get("finished"):
+		action = "FINISHED"
+	elif data["reorder_now"]:
+		action = "REORDER NOW"
+	else:
+		action = "OK"
+	print(f"Action: {action}")
 	return 0
 
 
@@ -460,7 +491,8 @@ def cmd_list(args: argparse.Namespace) -> int:
 		return 0
 
 	for r in rows:
-		print(f"- {r['package_id']}: {r['name']} [{r['form']}] | net {r['current_net_g']} g | usage {r['usage_g_per_day']} g/day | reorder {r['reorder_now']}")
+		status = "FINISHED" if r.get("finished") else ("REORDER" if r.get("reorder_now") else "OK")
+		print(f"- {r['package_id']}: {r['name']} [{r['form']}] | net {r['current_net_g']} g | usage {r['usage_g_per_day']} g/day | {status}")
 	return 0
 
 
@@ -479,7 +511,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 		for meta in iter_packages(db_path):
 			results.append(forecast(meta, list_weighins(db_path, meta.id)))
 
-	any_reorder = any(r.get("reorder_now") for r in results)
+	any_reorder = any(r.get("reorder_now") for r in results if not r.get("finished"))
 
 	if args.json:
 		if args.id:
@@ -491,11 +523,34 @@ def cmd_check(args: argparse.Namespace) -> int:
 			print("No packages found.")
 		else:
 			for r in results:
-				status = "REORDER" if r.get("reorder_now") else "OK"
+				if r.get("finished"):
+					status = "FINISHED"
+				else:
+					status = "REORDER" if r.get("reorder_now") else "OK"
 				print(f"{r['package_id']}: {status} (reorder_date {r['reorder_date']})")
 
 	# Exit code: 1 if any need reorder, else 0
 	return 1 if any_reorder else 0
+
+
+def cmd_finish(args: argparse.Namespace) -> int:
+	db_path = db_path_from_env_or_arg(args.base)
+	try:
+		meta = load_package(db_path, args.id)
+	except FileNotFoundError as e:
+		print(str(e), file=sys.stderr)
+		return 1
+
+	if meta.finished:
+		print(f"Package {args.id} is already finished.", file=sys.stderr)
+		return 1
+
+	conn = get_db_connection(db_path)
+	conn.execute("UPDATE packages SET finished = 1 WHERE id = ?", (args.id,))
+	conn.commit()
+	conn.close()
+	print(f"Marked package {args.id} as finished.")
+	return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -527,6 +582,7 @@ def build_parser() -> argparse.ArgumentParser:
 	pw.add_argument("--gross-g", required=True, type=float, dest="gross_g", help="Gross package mass (g)")
 	pw.add_argument("--timestamp", default=None, help="ISO-8601 timestamp; default now UTC")
 	pw.add_argument("--note", default=None, help="Optional note")
+	pw.add_argument("--finished", action="store_true", help="Mark the package as finished after this weigh-in")
 	pw.add_argument("--base", default=None, help="Base DB path")
 	pw.set_defaults(func=cmd_weigh)
 
@@ -550,6 +606,12 @@ def build_parser() -> argparse.ArgumentParser:
 	pc.add_argument("--json", action="store_true", help="Emit JSON (object for single, array for all)")
 	pc.add_argument("--base", default=None, help="Base DB path")
 	pc.set_defaults(func=cmd_check)
+
+	# finish
+	pf = sub.add_parser("finish", help="Mark a package as finished")
+	pf.add_argument("--id", required=True, help="Package ID")
+	pf.add_argument("--base", default=None, help="Base DB path")
+	pf.set_defaults(func=cmd_finish)
 
 	return p
 
