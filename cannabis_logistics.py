@@ -130,7 +130,7 @@ def write_json(path: Path, data: Dict[str, Any]) -> None:
 # ---------------- Core paths ----------------
 def db_path_from_env_or_arg(base: Optional[str]) -> Path:
     # Allow env override; default to repo-local data/therapeutics/cannabis/cannabis_logistics.db
-    env_base = os.environ.get("THERAPEUTICS_CANNABIS_DB")
+    env_base = os.environ.get("LIFESTORE_CANNABIS_DB")
     b = base or env_base or "data/therapeutics/cannabis/cannabis_logistics.db"
     return Path(b)
 

@@ -5,7 +5,7 @@ Track periodic package weigh-ins, estimate average usage, and forecast reorder d
 - Storage: SQLite database at `data/therapeutics/cannabis/cannabis_logistics.db`
   - `packages` table — package metadata
   - `weighins` table — individual weigh-in entries
-- Env override: `THERAPEUTICS_CANNABIS_DB` can change the database path.
+- Env override: `LIFESTORE_CANNABIS_DB` can change the database path.
 - CLI exposes `main(argv)` for tests and can be executed as a script.
 
 ## Subcommands
