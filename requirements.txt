@@ -1,4 +1,4 @@
-gradio
+gradio[mcp]
 scikit-learn
 numpy
 requests
