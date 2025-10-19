@@ -1,9 +1,9 @@
 .gradio/
 .venv/
 __pycache__/
-inventory/
 data/
 *.pem
 .cache/
 *.db
 .env
+.pytest_cache/
