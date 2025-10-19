@@ -31,7 +31,7 @@ def list_boxes():
 
 def create_box(new_box_id, location=""):
     """Create a new box folder and database entry if it does not already exist."""
-    new_box_id = (new_box_id or "").strip()
+    new_box_id = (new_box_id or "").strip().replace(" ", "-")
     location = (location or "").strip()
     if not new_box_id:
         return gr.update(), "⚠️ Enter a Box ID to add."
