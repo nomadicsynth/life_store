@@ -2,37 +2,48 @@ import argparse
 import os
 import uuid
 from datetime import datetime
+from dotenv import load_dotenv
 
 import gradio as gr
+from inventory_db import InventoryDB
+
+# Load environment variables from .env
+load_dotenv()
 
 # Root folder where everything is stored
-INVENTORY_ROOT = "data/inventory"
+LIFESTORE_DATA_PATH = os.environ.get("LIFESTORE_DATA_PATH", "data")
+INVENTORY_ROOT = os.path.join(LIFESTORE_DATA_PATH, "inventory")
+DB_PATH = os.path.join(LIFESTORE_DATA_PATH, "inventory", "inventory.db")
 
-LAN_IP = "127.0.0.1"
-PORT = 8443
-SSL_CERT = "cert.pem"
-SSL_KEY = "key.pem"
+# Database instance
+db = InventoryDB(DB_PATH)
+
+LAN_IP = os.environ.get("LIFESTORE_INVENTORY_HOST", os.environ.get("LIFESTORE_HOST", "127.0.0.1"))
+PORT = os.environ.get("LIFESTORE_INVENTORY_PORT", os.environ.get("LIFESTORE_PORT", 8443))
+SSL_CERT = os.environ.get("LIFESTORE_INVENTORY_SSL_CERT", os.environ.get("LIFESTORE_SSL_CERT", "cert.pem"))
+SSL_KEY = os.environ.get("LIFESTORE_INVENTORY_SSL_KEY", os.environ.get("LIFESTORE_SSL_KEY", "key.pem"))
 
 
 def list_boxes():
-    """Return a sorted list of existing box IDs (without 'Box_' prefix)."""
-    if not os.path.isdir(INVENTORY_ROOT):
-        return []
-    boxes = []
-    for name in os.listdir(INVENTORY_ROOT):
-        if name.startswith("Box_") and os.path.isdir(os.path.join(INVENTORY_ROOT, name)):
-            boxes.append(name[4:])
-    return sorted(boxes)
+    """Return a sorted list of existing box IDs from database."""
+    return db.list_boxes()
 
 
-def create_box(new_box_id):
-    """Create a new box folder if it does not already exist and return updated choices + status."""
+def create_box(new_box_id, location=""):
+    """Create a new box folder and database entry if it does not already exist."""
     new_box_id = (new_box_id or "").strip()
+    location = (location or "").strip()
     if not new_box_id:
         return gr.update(), "⚠️ Enter a Box ID to add."
+    
+    # Create filesystem folder
     box_folder = f"Box_{new_box_id}"
     path = os.path.join(INVENTORY_ROOT, box_folder)
     os.makedirs(path, exist_ok=True)
+    
+    # Create database entry
+    db.create_box(new_box_id, location=location)
+    
     choices = list_boxes()
     return gr.update(choices=choices, value=new_box_id), f"📦 Box '{new_box_id}' ready."
 
@@ -50,8 +61,8 @@ def clear_photos(_btn, photos_state):
     return [], "🧹 Cleared photos." if photos_state else "No photos to clear." 
 
 
-def save_photos(photos_state, selected_box_id, item_id, auto_generate):
-    """Save list of PIL images captured via webcam."""
+def save_photos(photos_state, selected_box_id, item_id, auto_generate, title, description):
+    """Save list of PIL images captured via webcam and store metadata in database."""
     if not photos_state or not selected_box_id:
         return "❌ Capture at least one photo and select a box."
 
@@ -61,9 +72,13 @@ def save_photos(photos_state, selected_box_id, item_id, auto_generate):
 
     if auto_generate or not item_id.strip():
         item_id = str(uuid.uuid4())[:8]
-    item_folder = f"Item_{item_id.strip()}"
+    item_id = item_id.strip()
+    item_folder = f"Item_{item_id}"
     item_path = os.path.join(box_path, item_folder)
     os.makedirs(item_path, exist_ok=True)
+
+    # Create item in database
+    db.create_item(item_id, selected_box_id.strip(), title=title.strip(), description=description.strip())
 
     ts_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
     for idx, img in enumerate(photos_state, start=1):
@@ -71,6 +86,9 @@ def save_photos(photos_state, selected_box_id, item_id, auto_generate):
         file_path = os.path.join(item_path, filename)
         try:
             img.save(file_path)
+            # Add photo to database (relative path from inventory root)
+            relative_path = os.path.join(box_folder, item_folder, filename)
+            db.add_photo(item_id, relative_path)
         except Exception as e:
             return f"⚠️ Error saving image {idx}: {e}"
 
@@ -105,13 +123,17 @@ with gr.Blocks() as demo:
     gr.Markdown("### Box Management")
     with gr.Row():
         new_box_input = gr.Textbox(label="New Box ID", placeholder="e.g. B001")
+        box_location_input = gr.Textbox(label="Location (optional)", placeholder="e.g. Garage shelf 2")
     with gr.Row():
         add_box_btn = gr.Button("📦 Add Box")
     box_dropdown = gr.Dropdown(label="Select Box", choices=list_boxes(), value=None, interactive=True, filterable=False)
     box_status = gr.Markdown("")
 
+    gr.Markdown("### Item Details")
     item_id = gr.Textbox(label="Item ID (optional, leave blank to auto-generate)")
     auto_generate = gr.Checkbox(label="Auto-generate Item ID", value=True)
+    item_title = gr.Textbox(label="Item Title (optional)", placeholder="e.g. Winter coats")
+    item_description = gr.Textbox(label="Description (optional)", placeholder="e.g. Down and wool coats, sizes M-L", lines=3)
     save_status = gr.Textbox(label="Status")
 
     save_btn = gr.Button("💾 Save All")
@@ -123,9 +145,9 @@ with gr.Blocks() as demo:
     clear_btn.click(fn=clear_photos, inputs=[clear_btn, photos_state], outputs=[photos_state, save_status]).then(
         fn=lambda photos: photos, inputs=photos_state, outputs=gallery
     )
-    add_box_btn.click(fn=create_box, inputs=new_box_input, outputs=[box_dropdown, box_status])
+    add_box_btn.click(fn=create_box, inputs=[new_box_input, box_location_input], outputs=[box_dropdown, box_status])
     # Chain save -> reset
-    save_btn.click(fn=save_photos, inputs=[photos_state, box_dropdown, item_id, auto_generate], outputs=save_status).then(
+    save_btn.click(fn=save_photos, inputs=[photos_state, box_dropdown, item_id, auto_generate, item_title, item_description], outputs=save_status).then(
         fn=post_save_reset, inputs=save_status, outputs=[photos_state, gallery, cam, item_id, save_status]
     )
 
