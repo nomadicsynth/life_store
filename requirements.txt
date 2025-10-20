@@ -3,6 +3,5 @@ scikit-learn
 numpy
 requests
 jsonschema
-jsonschema
 pytest
 python-dotenv
