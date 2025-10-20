@@ -71,45 +71,36 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
     
     if current_version < 1:
         # Version 0 -> 1: Add finished column
-        try:
+        # Check if column exists first to avoid overwriting data
+        cursor = conn.execute("PRAGMA table_info(packages)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "finished" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN finished INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
     
     if current_version < 2:
         # Version 1 -> 2: Migrate from lead_time_days to new transit/processing columns
-        try:
+        cursor = conn.execute("PRAGMA table_info(packages)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if "transit_days" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN transit_days INTEGER DEFAULT 2")
-        except sqlite3.OperationalError:
-            pass
-        try:
+        if "dispensary_processing_days" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN dispensary_processing_days INTEGER DEFAULT 1")
-        except sqlite3.OperationalError:
-            pass
-        try:
+        if "post_office_processing_days" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN post_office_processing_days INTEGER DEFAULT 1")
-        except sqlite3.OperationalError:
-            pass
-        try:
+        if "skip_weekends" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN skip_weekends INTEGER DEFAULT 1")
-        except sqlite3.OperationalError:
-            pass
         
         # Migrate old lead_time_days to new columns if needed
-        try:
-            cursor = conn.execute("PRAGMA table_info(packages)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if "lead_time_days" in columns and "transit_days" in columns:
-                # Migrate data: if transit_days is NULL or 0, copy from lead_time_days
-                conn.execute("""
-                    UPDATE packages 
-                    SET transit_days = COALESCE(transit_days, lead_time_days, 2),
-                        dispensary_processing_days = COALESCE(dispensary_processing_days, 1),
-                        post_office_processing_days = COALESCE(post_office_processing_days, 1)
-                    WHERE transit_days IS NULL OR transit_days = 0
-                """)
-        except sqlite3.OperationalError:
-            pass
+        if "lead_time_days" in columns and "transit_days" in columns:
+            # Migrate data: if transit_days is NULL or 0, copy from lead_time_days
+            conn.execute("""
+                UPDATE packages 
+                SET transit_days = COALESCE(transit_days, lead_time_days, 2),
+                    dispensary_processing_days = COALESCE(dispensary_processing_days, 1),
+                    post_office_processing_days = COALESCE(post_office_processing_days, 1)
+                WHERE transit_days IS NULL OR transit_days = 0
+            """)
     
     # Update to current schema version
     set_schema_version(conn, SCHEMA_VERSION)
@@ -256,24 +247,25 @@ def get_db_connection(db_path: Path) -> sqlite3.Connection:
 
 def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
     conn = get_db_connection(db_path)
+    conn.row_factory = sqlite3.Row  # Enable named column access
     row = conn.execute("SELECT * FROM packages WHERE id = ?", (pkg_id,)).fetchone()
     if not row:
         raise FileNotFoundError(f"Package not found: {pkg_id}")
     meta = PackageMeta(
-        id=row[0],
-        name=row[1],
-        form=row[2],
-        initial_net_g=row[3],
-        initial_gross_g=row[4],
-        transit_days=row[5] if row[5] is not None else 2,
-        dispensary_processing_days=row[6] if len(row) > 6 and row[6] is not None else 1,
-        post_office_processing_days=row[7] if len(row) > 7 and row[7] is not None else 1,
-        safety_stock_days=row[8] if len(row) > 8 and row[8] is not None else 2,
-        skip_weekends=bool(row[9]) if len(row) > 9 and row[9] is not None else True,
-        thc_percent=row[10] if len(row) > 10 else None,
-        cbd_percent=row[11] if len(row) > 11 else None,
-        created_at=row[12] if len(row) > 12 else "",
-        finished=bool(row[13]) if len(row) > 13 else False
+        id=row["id"],
+        name=row["name"],
+        form=row["form"],
+        initial_net_g=row["initial_net_g"],
+        initial_gross_g=row["initial_gross_g"],
+        transit_days=row["transit_days"] if row["transit_days"] is not None else 2,
+        dispensary_processing_days=row["dispensary_processing_days"] if row["dispensary_processing_days"] is not None else 1,
+        post_office_processing_days=row["post_office_processing_days"] if row["post_office_processing_days"] is not None else 1,
+        safety_stock_days=row["safety_stock_days"] if row["safety_stock_days"] is not None else 2,
+        skip_weekends=bool(row["skip_weekends"]) if row["skip_weekends"] is not None else True,
+        thc_percent=row["thc_percent"],
+        cbd_percent=row["cbd_percent"],
+        created_at=row["created_at"] if row["created_at"] else "",
+        finished=bool(row["finished"]) if row["finished"] is not None else False
     )
     conn.close()
     return meta
@@ -281,24 +273,25 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
 
 def iter_packages(db_path: Path) -> List[PackageMeta]:
     conn = get_db_connection(db_path)
+    conn.row_factory = sqlite3.Row  # Enable named column access
     rows = conn.execute("SELECT * FROM packages ORDER BY created_at, id").fetchall()
     packages = []
     for row in rows:
         meta = PackageMeta(
-            id=row[0],
-            name=row[1],
-            form=row[2],
-            initial_net_g=row[3],
-            initial_gross_g=row[4],
-            transit_days=row[5] if row[5] is not None else 2,
-            dispensary_processing_days=row[6] if len(row) > 6 and row[6] is not None else 1,
-            post_office_processing_days=row[7] if len(row) > 7 and row[7] is not None else 1,
-            safety_stock_days=row[8] if len(row) > 8 and row[8] is not None else 2,
-            skip_weekends=bool(row[9]) if len(row) > 9 and row[9] is not None else True,
-            thc_percent=row[10] if len(row) > 10 else None,
-            cbd_percent=row[11] if len(row) > 11 else None,
-            created_at=row[12] if len(row) > 12 else "",
-            finished=bool(row[13]) if len(row) > 13 else False
+            id=row["id"],
+            name=row["name"],
+            form=row["form"],
+            initial_net_g=row["initial_net_g"],
+            initial_gross_g=row["initial_gross_g"],
+            transit_days=row["transit_days"] if row["transit_days"] is not None else 2,
+            dispensary_processing_days=row["dispensary_processing_days"] if row["dispensary_processing_days"] is not None else 1,
+            post_office_processing_days=row["post_office_processing_days"] if row["post_office_processing_days"] is not None else 1,
+            safety_stock_days=row["safety_stock_days"] if row["safety_stock_days"] is not None else 2,
+            skip_weekends=bool(row["skip_weekends"]) if row["skip_weekends"] is not None else True,
+            thc_percent=row["thc_percent"],
+            cbd_percent=row["cbd_percent"],
+            created_at=row["created_at"] if row["created_at"] else "",
+            finished=bool(row["finished"]) if row["finished"] is not None else False
         )
         packages.append(meta)
     conn.close()
@@ -307,8 +300,9 @@ def iter_packages(db_path: Path) -> List[PackageMeta]:
 
 def list_weighins(db_path: Path, pkg_id: str) -> List[WeighIn]:
     conn = get_db_connection(db_path)
+    conn.row_factory = sqlite3.Row  # Enable named column access
     rows = conn.execute("SELECT timestamp, gross_g, note FROM weighins WHERE package_id = ? ORDER BY timestamp", (pkg_id,)).fetchall()
-    weighins = [WeighIn(timestamp=row[0], gross_g=row[1], note=row[2]) for row in rows]
+    weighins = [WeighIn(timestamp=row["timestamp"], gross_g=row["gross_g"], note=row["note"]) for row in rows]
     conn.close()
     return weighins
 
