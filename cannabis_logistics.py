@@ -28,7 +28,96 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---------------- Database schema ----------------
+SCHEMA_VERSION = 2  # Incremented when schema changes
+
+def get_schema_version(conn: sqlite3.Connection) -> int:
+    """Get current schema version from database."""
+    try:
+        cursor = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
+        row = cursor.fetchone()
+        return row[0] if row else 0
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet
+        return 0
+
+def set_schema_version(conn: sqlite3.Connection, version: int) -> None:
+    """Set schema version in database."""
+    conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, updated_at TEXT NOT NULL)")
+    conn.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", 
+                 (version, to_iso_z(now_utc())))
+    conn.commit()
+
+def backup_database(db_path: Path) -> Path:
+    """Create a backup of the database using SQLite's backup API. Returns path to backup."""
+    timestamp = now_utc().strftime("%Y%m%d_%H%M%S")
+    backup_path = db_path.parent / f"{db_path.stem}_backup_{timestamp}{db_path.suffix}"
+    
+    # Use SQLite's backup API for a consistent snapshot
+    source_conn = sqlite3.connect(str(db_path))
+    backup_conn = sqlite3.connect(str(backup_path))
+    
+    with backup_conn:
+        source_conn.backup(backup_conn)
+    
+    backup_conn.close()
+    source_conn.close()
+    
+    return backup_path
+
+def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
+    """Run database migrations from current_version to SCHEMA_VERSION."""
+    if current_version >= SCHEMA_VERSION:
+        return  # No migration needed
+    
+    if current_version < 1:
+        # Version 0 -> 1: Add finished column
+        try:
+            conn.execute("ALTER TABLE packages ADD COLUMN finished INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+    
+    if current_version < 2:
+        # Version 1 -> 2: Migrate from lead_time_days to new transit/processing columns
+        try:
+            conn.execute("ALTER TABLE packages ADD COLUMN transit_days INTEGER DEFAULT 2")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE packages ADD COLUMN dispensary_processing_days INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE packages ADD COLUMN post_office_processing_days INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE packages ADD COLUMN skip_weekends INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+        
+        # Migrate old lead_time_days to new columns if needed
+        try:
+            cursor = conn.execute("PRAGMA table_info(packages)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "lead_time_days" in columns and "transit_days" in columns:
+                # Migrate data: if transit_days is NULL or 0, copy from lead_time_days
+                conn.execute("""
+                    UPDATE packages 
+                    SET transit_days = COALESCE(transit_days, lead_time_days, 2),
+                        dispensary_processing_days = COALESCE(dispensary_processing_days, 1),
+                        post_office_processing_days = COALESCE(post_office_processing_days, 1)
+                    WHERE transit_days IS NULL OR transit_days = 0
+                """)
+        except sqlite3.OperationalError:
+            pass
+    
+    # Update to current schema version
+    set_schema_version(conn, SCHEMA_VERSION)
+    conn.commit()
+
 def create_tables(conn: sqlite3.Connection) -> None:
+    current_version = get_schema_version(conn)
+    
     conn.execute("""
         CREATE TABLE IF NOT EXISTS packages (
             id TEXT PRIMARY KEY,
@@ -36,8 +125,11 @@ def create_tables(conn: sqlite3.Connection) -> None:
             form TEXT NOT NULL,
             initial_net_g REAL,
             initial_gross_g REAL,
-            lead_time_days INTEGER NOT NULL,
+            transit_days INTEGER NOT NULL,
+            dispensary_processing_days INTEGER NOT NULL,
+            post_office_processing_days INTEGER NOT NULL,
             safety_stock_days INTEGER NOT NULL,
+            skip_weekends INTEGER DEFAULT 1,
             thc_percent REAL,
             cbd_percent REAL,
             created_at TEXT NOT NULL,
@@ -54,11 +146,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (package_id) REFERENCES packages(id)
         )
     """)
-    # Add finished column if it doesn't exist (for migration)
-    try:
-        conn.execute("ALTER TABLE packages ADD COLUMN finished INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+    
     conn.commit()
 
 
@@ -93,8 +181,11 @@ class PackageMeta:
 	form: str  # flower | oil | edible | tincture | capsule | concentrate
 	initial_net_g: float
 	initial_gross_g: float
-	lead_time_days: int
+	transit_days: int
+	dispensary_processing_days: int
+	post_office_processing_days: int
 	safety_stock_days: int
+	skip_weekends: bool = True
 	thc_percent: Optional[float] = None
 	cbd_percent: Optional[float] = None
 	created_at: str = ""
@@ -137,8 +228,29 @@ def db_path_from_env_or_arg(base: Optional[str]) -> Path:
 
 def get_db_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_exists = db_path.exists()
     conn = sqlite3.connect(str(db_path))
+    
+    # Check if migration is needed
+    current_version = get_schema_version(conn)
+    needs_migration = current_version < SCHEMA_VERSION
+    
+    # Create tables first (safe to run on existing DB)
     create_tables(conn)
+    
+    # Run migrations if needed
+    if needs_migration and db_exists:
+        conn.close()
+        # Backup before migrating
+        backup_path = backup_database(db_path)
+        print(f"Created backup: {backup_path}", file=sys.stderr)
+        # Reopen and migrate
+        conn = sqlite3.connect(str(db_path))
+        migrate_database(conn, current_version)
+    elif needs_migration:
+        # New database, just set version
+        migrate_database(conn, current_version)
+    
     return conn
 
 
@@ -153,12 +265,15 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
         form=row[2],
         initial_net_g=row[3],
         initial_gross_g=row[4],
-        lead_time_days=row[5],
-        safety_stock_days=row[6],
-        thc_percent=row[7],
-        cbd_percent=row[8],
-        created_at=row[9],
-        finished=bool(row[10]) if len(row) > 10 else False
+        transit_days=row[5] if row[5] is not None else 2,
+        dispensary_processing_days=row[6] if len(row) > 6 and row[6] is not None else 1,
+        post_office_processing_days=row[7] if len(row) > 7 and row[7] is not None else 1,
+        safety_stock_days=row[8] if len(row) > 8 and row[8] is not None else 2,
+        skip_weekends=bool(row[9]) if len(row) > 9 and row[9] is not None else True,
+        thc_percent=row[10] if len(row) > 10 else None,
+        cbd_percent=row[11] if len(row) > 11 else None,
+        created_at=row[12] if len(row) > 12 else "",
+        finished=bool(row[13]) if len(row) > 13 else False
     )
     conn.close()
     return meta
@@ -175,12 +290,15 @@ def iter_packages(db_path: Path) -> List[PackageMeta]:
             form=row[2],
             initial_net_g=row[3],
             initial_gross_g=row[4],
-            lead_time_days=row[5],
-            safety_stock_days=row[6],
-            thc_percent=row[7],
-            cbd_percent=row[8],
-            created_at=row[9],
-            finished=bool(row[10]) if len(row) > 10 else False
+            transit_days=row[5] if row[5] is not None else 2,
+            dispensary_processing_days=row[6] if len(row) > 6 and row[6] is not None else 1,
+            post_office_processing_days=row[7] if len(row) > 7 and row[7] is not None else 1,
+            safety_stock_days=row[8] if len(row) > 8 and row[8] is not None else 2,
+            skip_weekends=bool(row[9]) if len(row) > 9 and row[9] is not None else True,
+            thc_percent=row[10] if len(row) > 10 else None,
+            cbd_percent=row[11] if len(row) > 11 else None,
+            created_at=row[12] if len(row) > 12 else "",
+            finished=bool(row[13]) if len(row) > 13 else False
         )
         packages.append(meta)
     conn.close()
@@ -254,6 +372,18 @@ def previous_gross_at_or_before(meta: PackageMeta, db_path: Path, ts: datetime) 
 
 
 # ---------------- Usage/forecast logic ----------------
+def is_business_day(dt: datetime) -> bool:
+	"""Check if a datetime falls on a business day (Mon-Fri)."""
+	return dt.weekday() < 5  # 0=Mon, 4=Fri, 5=Sat, 6=Sun
+
+
+def previous_business_day(dt: datetime) -> datetime:
+	"""Walk backward from dt to find the most recent business day (at or before dt)."""
+	while not is_business_day(dt):
+		dt = dt - timedelta(days=1)
+	return dt
+
+
 def net_from_gross(gross_g: float, tare_g: Optional[float]) -> float:
 	if tare_g is None:
 		return gross_g
@@ -335,8 +465,11 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 		"as_of": to_iso_z(as_of),
 		"current_net_g": round(current_net, 3),
 		"usage_g_per_day": round(rate, 4) if rate is not None else None,
-		"lead_time_days": meta.lead_time_days,
+		"transit_days": meta.transit_days,
+		"dispensary_processing_days": meta.dispensary_processing_days,
+		"post_office_processing_days": meta.post_office_processing_days,
 		"safety_stock_days": meta.safety_stock_days,
+		"skip_weekends": meta.skip_weekends,
 		"finished": meta.finished,
 	}
 
@@ -344,8 +477,11 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 		result.update(
 			{
 				"estimated_depletion_date": None,
-				"reorder_date": None,
-				"reorder_in_days": None,
+				"required_pickup_date": None,
+				"required_post_office_arrival_date": None,
+				"courier_pickup_date": None,
+				"order_by_date": None,
+				"order_in_days": None,
 				"reorder_now": False,
 			}
 		)
@@ -355,26 +491,55 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 		result.update(
 			{
 				"estimated_depletion_date": None,
-				"reorder_date": None,
-				"reorder_in_days": None,
+				"required_pickup_date": None,
+				"required_post_office_arrival_date": None,
+				"courier_pickup_date": None,
+				"order_by_date": None,
+				"order_in_days": None,
 				"reorder_now": False,
 			}
 		)
 		return result
 
+	# Step 1: Calculate depletion date (when we run out based on usage)
 	days_remaining = current_net / rate if rate > 0 else float("inf")
 	depletion_dt = last_ts + timedelta(days=days_remaining)
-	# Reorder date is depletion minus (lead + safety). If that is before as_of, reorder now.
-	buffer_days = meta.lead_time_days + meta.safety_stock_days
-	reorder_dt = depletion_dt - timedelta(days=buffer_days)
-	reorder_in = math.floor((reorder_dt - as_of).total_seconds() / 86400.0)
-	reorder_now = reorder_in <= 0
+
+	# Step 2: Required pickup date = last business day before depletion (minus safety stock)
+	# Subtract safety stock first, then adjust to business day
+	target_pickup_dt = depletion_dt - timedelta(days=meta.safety_stock_days)
+	if meta.skip_weekends:
+		required_pickup_dt = previous_business_day(target_pickup_dt)
+	else:
+		required_pickup_dt = target_pickup_dt
+
+	# Step 3: Required post office arrival = pickup date minus post office processing buffer
+	# If pickup is Monday and we need 1 day processing, package must arrive by Friday (not Sunday)
+	required_po_arrival_dt = required_pickup_dt - timedelta(days=meta.post_office_processing_days)
+	if meta.skip_weekends:
+		required_po_arrival_dt = previous_business_day(required_po_arrival_dt)
+
+	# Step 4: Courier pickup from dispensary = post office arrival minus transit time
+	courier_pickup_dt = required_po_arrival_dt - timedelta(days=meta.transit_days)
+	if meta.skip_weekends:
+		courier_pickup_dt = previous_business_day(courier_pickup_dt)
+
+	# Step 5: Order-by date = courier pickup minus dispensary processing buffer
+	order_by_dt = courier_pickup_dt - timedelta(days=meta.dispensary_processing_days)
+	if meta.skip_weekends:
+		order_by_dt = previous_business_day(order_by_dt)
+
+	order_in = math.floor((order_by_dt - as_of).total_seconds() / 86400.0)
+	reorder_now = order_in <= 0
 
 	result.update(
 		{
 			"estimated_depletion_date": to_iso_z(depletion_dt),
-			"reorder_date": to_iso_z(reorder_dt),
-			"reorder_in_days": round(reorder_in, 2),
+			"required_pickup_date": to_iso_z(required_pickup_dt),
+			"required_post_office_arrival_date": to_iso_z(required_po_arrival_dt),
+			"courier_pickup_date": to_iso_z(courier_pickup_dt),
+			"order_by_date": to_iso_z(order_by_dt),
+			"order_in_days": round(order_in, 2),
 			"reorder_now": bool(reorder_now),
 		}
 	)
@@ -399,8 +564,15 @@ def cmd_init(args: argparse.Namespace) -> int:
 		created_at = to_iso_z(parse_iso8601_z(args.created_at))
 	else:
 		created_at = to_iso_z(now_utc())
-	conn.execute("INSERT OR REPLACE INTO packages (id, name, form, initial_net_g, initial_gross_g, lead_time_days, safety_stock_days, thc_percent, cbd_percent, created_at, finished) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, args.lead_time_days, args.safety_stock_days, args.thc_percent, args.cbd_percent, created_at, 0))
+	conn.execute("""
+		INSERT OR REPLACE INTO packages 
+		(id, name, form, initial_net_g, initial_gross_g, transit_days, dispensary_processing_days, 
+		 post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, created_at, finished) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	""",
+		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, 
+		 args.transit_days, args.dispensary_processing_days, args.post_office_processing_days,
+		 args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, created_at, 0))
 	conn.commit()
 	conn.close()
 	print(f"Initialized package {args.id}")
@@ -461,7 +633,10 @@ def cmd_report(args: argparse.Namespace) -> int:
 	print(f"Current net: {data['current_net_g']} g")
 	print(f"Usage: {data['usage_g_per_day']} g/day")
 	print(f"Depletion: {data['estimated_depletion_date']}")
-	print(f"Reorder date: {data['reorder_date']}  (in {data['reorder_in_days']} days)")
+	print(f"Required pickup: {data['required_pickup_date']}")
+	print(f"Post office arrival: {data['required_post_office_arrival_date']}")
+	print(f"Courier pickup: {data['courier_pickup_date']}")
+	print(f"Order by: {data['order_by_date']}  (in {data['order_in_days']} days)")
 	if data.get("finished"):
 		action = "FINISHED"
 	elif data["reorder_now"]:
@@ -527,7 +702,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 					status = "FINISHED"
 				else:
 					status = "REORDER" if r.get("reorder_now") else "OK"
-				print(f"{r['package_id']}: {status} (reorder_date {r['reorder_date']})")
+				print(f"{r['package_id']}: {status} (order by {r['order_by_date']})")
 
 	# Exit code: 1 if any need reorder, else 0
 	return 1 if any_reorder else 0
@@ -557,8 +732,11 @@ def build_parser() -> argparse.ArgumentParser:
 	p = argparse.ArgumentParser(description="Medical cannabis logistics CLI")
 	sub = p.add_subparsers(dest="cmd", required=True)
 
-	default_lead_time = int(os.environ.get('CANNABIS_LEAD_TIME_DAYS', 0))
-	default_safety_stock = int(os.environ.get('CANNABIS_SAFETY_STOCK_DAYS', 0))
+	default_transit_days = int(os.environ.get('CANNABIS_TRANSIT_DAYS', 2))
+	default_dispensary_processing_days = int(os.environ.get('CANNABIS_DISPENSARY_PROCESSING_DAYS', 1))
+	default_post_office_processing_days = int(os.environ.get('CANNABIS_POST_OFFICE_PROCESSING_DAYS', 1))
+	default_safety_stock = int(os.environ.get('CANNABIS_SAFETY_STOCK_DAYS', 2))
+	default_skip_weekends = os.environ.get('CANNABIS_SKIP_WEEKENDS', 'True').lower() in ('true', '1', 'yes')
 
 	# init
 	pi = sub.add_parser("init", help="Initialize a package")
@@ -567,8 +745,11 @@ def build_parser() -> argparse.ArgumentParser:
 	pi.add_argument("--form", required=True, help="Form: flower|oil|edible|tincture|capsule|concentrate")
 	pi.add_argument("--initial-net-g", type=float, required=True, dest="initial_net_g", help="Initial net mass in grams (required)")
 	pi.add_argument("--initial-gross-g", type=float, required=True, dest="initial_gross_g", help="Initial gross mass (g) (required)")
-	pi.add_argument("--lead-time-days", type=int, default=default_lead_time, dest="lead_time_days", help="Supplier lead time in days (default from CANNABIS_LEAD_TIME_DAYS env var)")
+	pi.add_argument("--transit-days", type=int, default=default_transit_days, dest="transit_days", help="Transit time from dispensary to post office in days (default from CANNABIS_TRANSIT_DAYS env var)")
+	pi.add_argument("--dispensary-processing-days", type=int, default=default_dispensary_processing_days, dest="dispensary_processing_days", help="Dispensary processing buffer in days (default from CANNABIS_DISPENSARY_PROCESSING_DAYS env var)")
+	pi.add_argument("--post-office-processing-days", type=int, default=default_post_office_processing_days, dest="post_office_processing_days", help="Post office processing buffer in days (default from CANNABIS_POST_OFFICE_PROCESSING_DAYS env var)")
 	pi.add_argument("--safety-stock-days", type=int, default=default_safety_stock, dest="safety_stock_days", help="Safety stock buffer in days (default from CANNABIS_SAFETY_STOCK_DAYS env var)")
+	pi.add_argument("--skip-weekends", type=lambda x: x.lower() in ('true', '1', 'yes'), default=default_skip_weekends, dest="skip_weekends", help="Skip weekends when computing order dates (default from CANNABIS_SKIP_WEEKENDS env var)")
 	pi.add_argument("--thc-percent", type=float, default=None, dest="thc_percent")
 	pi.add_argument("--cbd-percent", type=float, default=None, dest="cbd_percent")
 	pi.add_argument("--base", default=None, help="Base DB path (default data/therapeutics/cannabis/cannabis_logistics.db)")
