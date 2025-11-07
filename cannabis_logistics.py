@@ -558,7 +558,10 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 		order_by_dt = previous_business_day(order_by_dt)
 
 	order_in = math.floor((order_by_dt - as_of).total_seconds() / 86400.0)
-	reorder_now = order_in <= 0
+	if meta.reordered:
+		reorder_now = False
+	else:
+		reorder_now = order_in <= 0
 
 	result.update(
 		{
@@ -683,7 +686,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 	# Human-friendly output
 	print(f"Package: {data['package_id']}")
-	print(f"As of:   {data['as_of']}")
+	print(f"As of: {data['as_of']}")
 	print(f"Last weigh-in: {data['last_weigh_in_at']}")
 	print(f"Current net: {data['current_net_g']} g")
 	print(f"Usage: {data['usage_g_per_day']} g/day")
@@ -691,30 +694,26 @@ def cmd_report(args: argparse.Namespace) -> int:
 	print(f"Required pickup: {data['required_pickup_date']}")
 	print(f"Post office arrival: {data['required_post_office_arrival_date']}")
 	print(f"Courier pickup: {data['courier_pickup_date']}")
-	print(f"Order by: {data['order_by_date']}  (in {data['order_in_days']} days)")
+	print(f"Order by: {data['order_by_date']} (in {data['order_in_days']} days)")
 
 	# Set the status
-	status = None
+	status = "Ok"
 	if data.get("finished"):
-		status = "FINISHED"
+		status = "Finished"
 		if data.get("finished_date"):
 			status_date = data.get("finished_date")
 			status += f" on {status_date}"
-	if data.get("reordered"):
-		status += " | REORDERED"
-		if data.get("reordered_date"):
-			status_date = data.get("reordered_date")
-			status += f" on {status_date}"
-	if status is None:
-		status = "OK"
 	print(f"Status: {status}")
 
 	# Set the action
-	action = None
+	action = "No action required"
 	if data.get("reorder_now"):
 		action = "REORDER NOW"
-	else:
-		action = "OK"
+	elif data.get("reordered"):
+		action += " | Reordered"
+		if data.get("reordered_date"):
+			action_date = data.get("reordered_date")
+			action += f" on {action_date}."
 	print(f"Action: {action}")
 	return 0
 
