@@ -813,13 +813,16 @@ def cmd_reorder(args: argparse.Namespace) -> int:
 		return 1
 
 	conn = get_db_connection(db_path)
-	reordered_date = to_iso_z(now_utc())
-	conn.execute("UPDATE packages SET reordered = 1, reordered_date = ? WHERE id = ?", (reordered_date, args.id))
+	# check if reorder-date is a valid ISO-8601 timestamp
+	if args.reorder_date and not parse_iso8601_z(args.reorder_date):
+		print(f"Invalid reorder-date: {args.reorder_date}", file=sys.stderr)
+		return 1
+	reorder_date = args.reorder_date if args.reorder_date else to_iso_z(now_utc())
+	conn.execute("UPDATE packages SET reordered = 1, reordered_date = ? WHERE id = ?", (reorder_date, args.id))
 	conn.commit()
 	conn.close()
-	print(f"Marked package {args.id} as reordered.")
+	print(f"Marked package {args.id} as reordered on {reorder_date}.")
 	return 0
-
 
 def cmd_edit(args: argparse.Namespace) -> int:
 	db_path = db_path_from_env_or_arg(args.base)
@@ -984,6 +987,7 @@ def build_parser() -> argparse.ArgumentParser:
 	# reorder
 	prd = sub.add_parser("reorder", help="Mark a package as reordered")
 	prd.add_argument("--id", required=True, help="Package ID")
+	prd.add_argument("--reorder-date", default=None, help="ISO-8601 timestamp for reorder date. Defaults to now UTC.")
 	prd.add_argument("--base", default=None, help="Base DB path")
 	prd.set_defaults(func=cmd_reorder)
 
