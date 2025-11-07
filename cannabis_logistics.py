@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---------------- Database schema ----------------
-SCHEMA_VERSION = 2  # Incremented when schema changes
+SCHEMA_VERSION = 3  # Incremented when schema changes
 
 def get_schema_version(conn: sqlite3.Connection) -> int:
     """Get current schema version from database."""
@@ -102,6 +102,19 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
                 WHERE transit_days IS NULL OR transit_days = 0
             """)
     
+    if current_version < 3:
+        # Version 2 -> 3: Add package_cost, reordered, reordered_date, and finished_date columns
+        cursor = conn.execute("PRAGMA table_info(packages)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "package_cost" not in columns:
+            conn.execute("ALTER TABLE packages ADD COLUMN package_cost REAL")
+        if "reordered" not in columns:
+            conn.execute("ALTER TABLE packages ADD COLUMN reordered INTEGER DEFAULT 0")
+        if "reordered_date" not in columns:
+            conn.execute("ALTER TABLE packages ADD COLUMN reordered_date TEXT")
+        if "finished_date" not in columns:
+            conn.execute("ALTER TABLE packages ADD COLUMN finished_date TEXT")
+    
     # Update to current schema version
     set_schema_version(conn, SCHEMA_VERSION)
     conn.commit()
@@ -123,8 +136,12 @@ def create_tables(conn: sqlite3.Connection) -> None:
             skip_weekends INTEGER DEFAULT 1,
             thc_percent REAL,
             cbd_percent REAL,
+            package_cost REAL,
             created_at TEXT NOT NULL,
-            finished INTEGER DEFAULT 0
+            finished INTEGER DEFAULT 0,
+            finished_date TEXT,
+            reordered INTEGER DEFAULT 0,
+            reordered_date TEXT
         )
     """)
     conn.execute("""
@@ -179,8 +196,12 @@ class PackageMeta:
 	skip_weekends: bool = True
 	thc_percent: Optional[float] = None
 	cbd_percent: Optional[float] = None
+	package_cost: Optional[float] = None
 	created_at: str = ""
 	finished: bool = False
+	finished_date: Optional[str] = None
+	reordered: bool = False
+	reordered_date: Optional[str] = None
 
 
 @dataclass
@@ -264,8 +285,12 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
         skip_weekends=bool(row["skip_weekends"]) if row["skip_weekends"] is not None else True,
         thc_percent=row["thc_percent"],
         cbd_percent=row["cbd_percent"],
+        package_cost=row["package_cost"] if "package_cost" in row.keys() else None,
         created_at=row["created_at"] if row["created_at"] else "",
-        finished=bool(row["finished"]) if row["finished"] is not None else False
+        finished=bool(row["finished"]) if "finished" in row.keys() and row["finished"] is not None else False,
+        finished_date=row["finished_date"] if "finished_date" in row.keys() and row["finished_date"] else None,
+        reordered=bool(row["reordered"]) if "reordered" in row.keys() and row["reordered"] is not None else False,
+        reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None
     )
     conn.close()
     return meta
@@ -290,8 +315,12 @@ def iter_packages(db_path: Path) -> List[PackageMeta]:
             skip_weekends=bool(row["skip_weekends"]) if row["skip_weekends"] is not None else True,
             thc_percent=row["thc_percent"],
             cbd_percent=row["cbd_percent"],
+            package_cost=row["package_cost"] if "package_cost" in row.keys() else None,
             created_at=row["created_at"] if row["created_at"] else "",
-            finished=bool(row["finished"]) if row["finished"] is not None else False
+            finished=bool(row["finished"]) if "finished" in row.keys() and row["finished"] is not None else False,
+            finished_date=row["finished_date"] if "finished_date" in row.keys() and row["finished_date"] else None,
+            reordered=bool(row["reordered"]) if "reordered" in row.keys() and row["reordered"] is not None else False,
+            reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None
         )
         packages.append(meta)
     conn.close()
@@ -465,6 +494,11 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 		"safety_stock_days": meta.safety_stock_days,
 		"skip_weekends": meta.skip_weekends,
 		"finished": meta.finished,
+		"finished_date": meta.finished_date,
+		"reordered": meta.reordered,
+		"reordered_date": meta.reordered_date,
+		"package_cost": meta.package_cost,
+		"cost_per_gram": round(meta.package_cost / meta.initial_net_g, 2) if meta.package_cost is not None and meta.initial_net_g and meta.initial_net_g > 0 else None,
 	}
 
 	if meta.finished:
@@ -540,6 +574,32 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 	return result
 
 
+# ---------------- Budgeting module helper ----------------
+def get_all_forecasts(db_path: Optional[Path] = None, as_of: Optional[datetime] = None) -> List[Dict[str, Any]]:
+	"""Get forecasts for all packages. Intended for use by budgeting module.
+	
+	Args:
+		db_path: Path to database (defaults to standard path)
+		as_of: Forecast 'as of' timestamp (defaults to now)
+	
+	Returns:
+		List of forecast dictionaries, one per package
+	"""
+	if db_path is None:
+		db_path = db_path_from_env_or_arg(None)
+	
+	forecasts = []
+	for meta in iter_packages(db_path):
+		weighins = list_weighins(db_path, meta.id)
+		data = forecast(meta, weighins, as_of=as_of)
+		# Enrich with name and form for convenience
+		data["name"] = meta.name
+		data["form"] = meta.form
+		forecasts.append(data)
+	
+	return forecasts
+
+
 # ---------------- CLI impl ----------------
 def cmd_init(args: argparse.Namespace) -> int:
 	db_path = db_path_from_env_or_arg(args.base)
@@ -561,12 +621,12 @@ def cmd_init(args: argparse.Namespace) -> int:
 	conn.execute("""
 		INSERT OR REPLACE INTO packages 
 		(id, name, form, initial_net_g, initial_gross_g, transit_days, dispensary_processing_days, 
-		 post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, created_at, finished) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, package_cost, created_at, finished, finished_date, reordered, reordered_date) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	""",
 		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, 
 		 args.transit_days, args.dispensary_processing_days, args.post_office_processing_days,
-		 args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, created_at, 0))
+		 args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, args.package_cost, created_at, 0, None, 0, None))
 	conn.commit()
 	conn.close()
 	print(f"Initialized package {args.id}")
@@ -594,7 +654,8 @@ def cmd_weigh(args: argparse.Namespace) -> int:
 	conn = get_db_connection(db_path)
 	conn.execute("INSERT INTO weighins (package_id, timestamp, gross_g, note) VALUES (?, ?, ?, ?)", (args.id, to_iso_z(ts), args.gross_g, args.note))
 	if args.finished:
-		conn.execute("UPDATE packages SET finished = 1 WHERE id = ?", (args.id,))
+		finished_date = to_iso_z(ts)
+		conn.execute("UPDATE packages SET finished = 1, finished_date = ? WHERE id = ?", (finished_date, args.id))
 	conn.commit()
 	conn.close()
 	new_net = net_from_gross(args.gross_g, get_tare(meta))
@@ -631,9 +692,26 @@ def cmd_report(args: argparse.Namespace) -> int:
 	print(f"Post office arrival: {data['required_post_office_arrival_date']}")
 	print(f"Courier pickup: {data['courier_pickup_date']}")
 	print(f"Order by: {data['order_by_date']}  (in {data['order_in_days']} days)")
+
+	# Set the status
+	status = None
 	if data.get("finished"):
-		action = "FINISHED"
-	elif data["reorder_now"]:
+		status = "FINISHED"
+		if data.get("finished_date"):
+			status_date = data.get("finished_date")
+			status += f" on {status_date}"
+	if data.get("reordered"):
+		status += " | REORDERED"
+		if data.get("reordered_date"):
+			status_date = data.get("reordered_date")
+			status += f" on {status_date}"
+	if status is None:
+		status = "OK"
+	print(f"Status: {status}")
+
+	# Set the action
+	action = None
+	if data.get("reorder_now"):
 		action = "REORDER NOW"
 	else:
 		action = "OK"
@@ -715,10 +793,105 @@ def cmd_finish(args: argparse.Namespace) -> int:
 		return 1
 
 	conn = get_db_connection(db_path)
-	conn.execute("UPDATE packages SET finished = 1 WHERE id = ?", (args.id,))
+	finished_date = to_iso_z(now_utc())
+	conn.execute("UPDATE packages SET finished = 1, finished_date = ? WHERE id = ?", (finished_date, args.id))
 	conn.commit()
 	conn.close()
 	print(f"Marked package {args.id} as finished.")
+	return 0
+
+
+def cmd_reorder(args: argparse.Namespace) -> int:
+	db_path = db_path_from_env_or_arg(args.base)
+	try:
+		meta = load_package(db_path, args.id)
+	except FileNotFoundError as e:
+		print(str(e), file=sys.stderr)
+		return 1
+
+	if meta.reordered:
+		print(f"Package {args.id} is already marked as reordered.", file=sys.stderr)
+		return 1
+
+	conn = get_db_connection(db_path)
+	reordered_date = to_iso_z(now_utc())
+	conn.execute("UPDATE packages SET reordered = 1, reordered_date = ? WHERE id = ?", (reordered_date, args.id))
+	conn.commit()
+	conn.close()
+	print(f"Marked package {args.id} as reordered.")
+	return 0
+
+
+def cmd_edit(args: argparse.Namespace) -> int:
+	db_path = db_path_from_env_or_arg(args.base)
+	try:
+		meta = load_package(db_path, args.id)
+	except FileNotFoundError as e:
+		print(str(e), file=sys.stderr)
+		return 1
+
+	conn = get_db_connection(db_path)
+	
+	# Build dynamic UPDATE statement based on provided fields
+	updates = []
+	values = []
+	
+	if args.name is not None:
+		updates.append("name = ?")
+		values.append(args.name)
+	if args.form is not None:
+		updates.append("form = ?")
+		values.append(args.form)
+	if args.initial_net_g is not None:
+		updates.append("initial_net_g = ?")
+		values.append(args.initial_net_g)
+	if args.initial_gross_g is not None:
+		updates.append("initial_gross_g = ?")
+		values.append(args.initial_gross_g)
+	if args.transit_days is not None:
+		updates.append("transit_days = ?")
+		values.append(args.transit_days)
+	if args.dispensary_processing_days is not None:
+		updates.append("dispensary_processing_days = ?")
+		values.append(args.dispensary_processing_days)
+	if args.post_office_processing_days is not None:
+		updates.append("post_office_processing_days = ?")
+		values.append(args.post_office_processing_days)
+	if args.safety_stock_days is not None:
+		updates.append("safety_stock_days = ?")
+		values.append(args.safety_stock_days)
+	if args.skip_weekends is not None:
+		updates.append("skip_weekends = ?")
+		values.append(int(args.skip_weekends))
+	if args.thc_percent is not None:
+		updates.append("thc_percent = ?")
+		values.append(args.thc_percent)
+	if args.cbd_percent is not None:
+		updates.append("cbd_percent = ?")
+		values.append(args.cbd_percent)
+	if args.package_cost is not None:
+		updates.append("package_cost = ?")
+		values.append(args.package_cost)
+	if args.finished is not None:
+		updates.append("finished = ?")
+		values.append(int(args.finished))
+	if args.reordered is not None:
+		updates.append("reordered = ?")
+		values.append(int(args.reordered))
+	
+	if not updates:
+		print("No fields to update. Provide at least one field to edit.", file=sys.stderr)
+		conn.close()
+		return 1
+	
+	values.append(args.id)
+	update_sql = f"UPDATE packages SET {', '.join(updates)} WHERE id = ?"
+	conn.execute(update_sql, values)
+	conn.commit()
+	conn.close()
+	
+	updated_fields = [u.split(' =')[0] for u in updates]
+	print(f"Updated package {args.id}: {', '.join(updated_fields)}")
 	return 0
 
 
@@ -746,6 +919,7 @@ def build_parser() -> argparse.ArgumentParser:
 	pi.add_argument("--skip-weekends", type=lambda x: x.lower() in ('true', '1', 'yes'), default=default_skip_weekends, dest="skip_weekends", help="Skip weekends when computing order dates (default from CANNABIS_SKIP_WEEKENDS env var)")
 	pi.add_argument("--thc-percent", type=float, default=None, dest="thc_percent")
 	pi.add_argument("--cbd-percent", type=float, default=None, dest="cbd_percent")
+	pi.add_argument("--package-cost", type=float, default=None, dest="package_cost", help="Cost of the package (for budgeting)")
 	pi.add_argument("--base", default=None, help="Base DB path (default data/therapeutics/cannabis/cannabis_logistics.db)")
 	pi.add_argument("--force", action="store_true", help="Overwrite existing package metadata")
 	pi.add_argument("--created-at", default=None, help="ISO-8601 timestamp for package creation; default now UTC")
@@ -787,6 +961,32 @@ def build_parser() -> argparse.ArgumentParser:
 	pf.add_argument("--id", required=True, help="Package ID")
 	pf.add_argument("--base", default=None, help="Base DB path")
 	pf.set_defaults(func=cmd_finish)
+
+	# edit
+	pe = sub.add_parser("edit", help="Edit package details")
+	pe.add_argument("--id", required=True, help="Package ID")
+	pe.add_argument("--name", default=None, help="Display name")
+	pe.add_argument("--form", default=None, help="Form: flower|oil|edible|tincture|capsule|concentrate")
+	pe.add_argument("--initial-net-g", type=float, default=None, dest="initial_net_g", help="Initial net mass in grams")
+	pe.add_argument("--initial-gross-g", type=float, default=None, dest="initial_gross_g", help="Initial gross mass (g)")
+	pe.add_argument("--transit-days", type=int, default=None, dest="transit_days", help="Transit time from dispensary to post office in days")
+	pe.add_argument("--dispensary-processing-days", type=int, default=None, dest="dispensary_processing_days", help="Dispensary processing buffer in days")
+	pe.add_argument("--post-office-processing-days", type=int, default=None, dest="post_office_processing_days", help="Post office processing buffer in days")
+	pe.add_argument("--safety-stock-days", type=int, default=None, dest="safety_stock_days", help="Safety stock buffer in days")
+	pe.add_argument("--skip-weekends", type=lambda x: x.lower() in ('true', '1', 'yes'), default=None, dest="skip_weekends", help="Skip weekends when computing order dates (true/false)")
+	pe.add_argument("--thc-percent", type=float, default=None, dest="thc_percent", help="THC percentage")
+	pe.add_argument("--cbd-percent", type=float, default=None, dest="cbd_percent", help="CBD percentage")
+	pe.add_argument("--package-cost", type=float, default=None, dest="package_cost", help="Cost of the package (for budgeting)")
+	pe.add_argument("--finished", type=lambda x: x.lower() in ('true', '1', 'yes'), default=None, dest="finished", help="Mark package as finished (true/false)")
+	pe.add_argument("--reordered", type=lambda x: x.lower() in ('true', '1', 'yes'), default=None, dest="reordered", help="Mark package as reordered (true/false)")
+	pe.add_argument("--base", default=None, help="Base DB path")
+	pe.set_defaults(func=cmd_edit)
+
+	# reorder
+	prd = sub.add_parser("reorder", help="Mark a package as reordered")
+	prd.add_argument("--id", required=True, help="Package ID")
+	prd.add_argument("--base", default=None, help="Base DB path")
+	prd.set_defaults(func=cmd_reorder)
 
 	return p
 
