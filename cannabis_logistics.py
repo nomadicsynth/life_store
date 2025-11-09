@@ -114,6 +114,13 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
             conn.execute("ALTER TABLE packages ADD COLUMN reordered_date TEXT")
         if "finished_date" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN finished_date TEXT")
+
+    if current_version < 4:
+		# Version 3 -> 4: Fix: "Unexpected error: NOT NULL constraint failed: packages.lead_time_days" when adding new packages
+        cursor = conn.execute("PRAGMA table_info(packages)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "lead_time_days" in columns:
+            conn.execute("ALTER TABLE packages DROP COLUMN lead_time_days")
     
     # Update to current schema version
     set_schema_version(conn, SCHEMA_VERSION)
