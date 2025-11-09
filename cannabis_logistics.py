@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---------------- Database schema ----------------
-SCHEMA_VERSION = 3  # Incremented when schema changes
+SCHEMA_VERSION = 4  # Incremented when schema changes
 
 def get_schema_version(conn: sqlite3.Connection) -> int:
     """Get current schema version from database."""
