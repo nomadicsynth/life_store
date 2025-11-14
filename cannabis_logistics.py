@@ -1026,7 +1026,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 				prev_ts = parse_iso8601_z(history_points[i-1]["timestamp"])
 				curr_ts = parse_iso8601_z(history_points[i]["timestamp"])
 				days_diff = (curr_ts - prev_ts).total_seconds() / 86400.0
-				if days_diff > 30:  # More than 30 days between weigh-ins
+				if days_diff > 7:  # More than 7 days between weigh-ins
 					discrepancies.append(
 						f"⚠️  Large gap between weigh-ins: {days_diff:.1f} days "
 						f"(from {history_points[i-1]['timestamp']} to {history_points[i]['timestamp']}). "
