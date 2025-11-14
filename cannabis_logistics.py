@@ -129,6 +129,9 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
         if "weight_discrepancy_g" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN weight_discrepancy_g REAL")
             
+            # Clear any discrepancy values for unfinished packages (safety check)
+            conn.execute("UPDATE packages SET weight_discrepancy_g = NULL WHERE finished = 0")
+            
             # Calculate discrepancy for existing finished packages
             # For each finished package, get the latest weigh-in and calculate net weight
             # Discrepancy = computed_net - actual (where actual is 0 when finished)
@@ -970,6 +973,10 @@ def cmd_edit(args: argparse.Namespace) -> int:
 	if args.finished is not None:
 		updates.append("finished = ?")
 		values.append(int(args.finished))
+		# If marking as not finished, clear discrepancy (it's only valid when finished)
+		if not args.finished:
+			updates.append("weight_discrepancy_g = ?")
+			values.append(None)
 	if args.reordered is not None:
 		updates.append("reordered = ?")
 		values.append(int(args.reordered))
