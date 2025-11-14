@@ -726,7 +726,7 @@ def cmd_weigh(args: argparse.Namespace) -> int:
 	prev_gross = previous_gross_at_or_before(meta, db_path, ts)
 	if prev_gross is not None and args.gross_g > prev_gross:
 		print(
-			f"Error: gross increased ({args.gross_g:.3f}g) vs previous {prev_gross:.3f}g at or before {to_iso_z(ts)}; rejecting entry.",
+			f"Error: gross increased ({args.gross_g:.2f}g) vs previous {prev_gross:.2f}g at or before {to_iso_z(ts)}; rejecting entry.",
 			file=sys.stderr,
 		)
 		return 1
@@ -974,8 +974,8 @@ def cmd_history(args: argparse.Namespace) -> int:
 					increase = w.gross_g - prev_gross
 					discrepancies.append(
 						f"⚠️  Weight INCREASE detected at {w.timestamp}: "
-						f"gross increased by {increase:.3f}g "
-						f"(from {prev_gross:.3f}g to {w.gross_g:.3f}g). "
+						f"gross increased by {increase:.2f}g "
+						f"(from {prev_gross:.2f}g to {w.gross_g:.2f}g). "
 						"This should not happen - possible measurement error or data entry mistake."
 					)
 				
@@ -989,8 +989,16 @@ def cmd_history(args: argparse.Namespace) -> int:
 							discrepancies.append(
 								f"⚠️  Unusually high consumption rate at {w.timestamp}: "
 								f"{rate:.2f}g/day over {days_diff:.1f} days "
-								f"(consumed {consumed:.3f}g). This may indicate a measurement error."
+								f"(consumed {consumed:.2f}g). This may indicate a measurement error."
 							)
+
+			# Gross g is zero or negative
+			if w.gross_g <= 0:
+				discrepancies.append(
+					f"⚠️  Gross weight is zero or negative at {w.timestamp}: "
+					f"gross={w.gross_g:.2f}g. This should not happen - possible measurement error or data entry mistake."
+				)
+				w.note = f"gross <= 0.00g! {w.note}"
 			
 			history_points.append({
 				"timestamp": w.timestamp,
@@ -1013,7 +1021,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 		if meta.weight_discrepancy_g is not None:
 			if abs(meta.weight_discrepancy_g) > 0.1:  # More than 0.1g discrepancy
 				discrepancies.append(
-					f"⚠️  Final weight discrepancy: {meta.weight_discrepancy_g:.3f}g remaining "
+					f"⚠️  Final weight discrepancy: {meta.weight_discrepancy_g:.2f}g remaining "
 					f"when package was marked finished. This suggests measurement error or "
 					f"incomplete consumption tracking."
 				)
@@ -1063,10 +1071,10 @@ def cmd_history(args: argparse.Namespace) -> int:
 	if meta.finished:
 		print(f"Finished: {meta.finished_date}")
 		if meta.weight_discrepancy_g is not None:
-			print(f"Final weight discrepancy: {meta.weight_discrepancy_g:.3f}g")
-	print(f"Initial: {meta.initial_gross_g:.3f}g gross, {meta.initial_net_g:.3f}g net")
+			print(f"Final weight discrepancy: {meta.weight_discrepancy_g:.2f}g")
+	print(f"Initial: {meta.initial_gross_g:.2f}g gross, {meta.initial_net_g:.2f}g net")
 	if tare is not None:
-		print(f"Tare weight: {tare:.3f}g")
+		print(f"Tare weight: {tare:.2f}g")
 	print()
 	
 	print("Weight History:")
@@ -1087,9 +1095,9 @@ def cmd_history(args: argparse.Namespace) -> int:
 			delta_clipped = net_clipped - prev_net_clipped
 			delta_unclipped = net_unclipped - prev_net_unclipped
 			delta_diff = delta_unclipped - delta_clipped
-			delta_clipped_str = f"{delta_clipped: .3f}"
-			delta_unclipped_str = f"{delta_unclipped: .3f}"
-			delta_diff_str = f"{delta_diff: .3f}"
+			delta_clipped_str = f"{delta_clipped: .2f}"
+			delta_unclipped_str = f"{delta_unclipped: .2f}"
+			delta_diff_str = f"{delta_diff: .2f}"
 		else:
 			delta_clipped_str = " 0.000"
 			delta_unclipped_str = " 0.000"
@@ -1101,7 +1109,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 		elif point.get("is_finished"):
 			note = "Finished" if not note else f"Finished: {note}"
 		
-		print(f"{timestamp_str:<20} {gross:<12.3f} {net_clipped:<12.3f} {net_unclipped:<14.3f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {note:<20}")
+		print(f"{timestamp_str:<20} {gross:<12.2f} {net_clipped:<12.2f} {net_unclipped:<14.2f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {note:<20}")
 		
 		prev_net_clipped = net_clipped
 		prev_net_unclipped = net_unclipped
