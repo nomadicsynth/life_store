@@ -1113,9 +1113,9 @@ def cmd_history(args: argparse.Namespace) -> int:
             delta_unclipped_str = f"{delta_unclipped: .2f}"
             delta_diff_str = f"{delta_diff: .2f}"
         else:
-            delta_clipped_str = " 0.000"
-            delta_unclipped_str = " 0.000"
-            delta_diff_str = " 0.000"
+            delta_clipped_str = " 0.00"
+            delta_unclipped_str = " 0.00"
+            delta_diff_str = " 0.00"
         
         note = point.get("note", "") or ""
         
