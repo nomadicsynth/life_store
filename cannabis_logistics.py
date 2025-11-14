@@ -152,7 +152,7 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
                     # Calculate computed net weight from latest weigh-in
                     gross_g = latest_weighin[0]
                     tare = initial_gross_g - initial_net_g if (initial_gross_g is not None and initial_net_g is not None) else None
-                    computed_net = max(gross_g - tare, 0.0) if tare is not None else gross_g
+                    computed_net = gross_g - tare if tare is not None else gross_g
                     # Discrepancy = computed_net
                     discrepancy = computed_net
                 else:
@@ -463,9 +463,16 @@ def previous_business_day(dt: datetime) -> datetime:
 
 
 def net_from_gross(gross_g: float, tare_g: Optional[float]) -> float:
+	"""Calculate net weight from gross, clipping to 0 to avoid negative values for forecasting."""
 	if tare_g is None:
 		return gross_g
 	return max(gross_g - tare_g, 0.0)
+
+def net_from_gross_unclipped(gross_g: float, tare_g: Optional[float]) -> float:
+	"""Calculate net weight from gross without clipping. Use for discrepancy calculations."""
+	if tare_g is None:
+		return gross_g
+	return gross_g - tare_g
 
 
 def usage_rate_g_per_day(meta: PackageMeta, weighins: List[WeighIn]) -> Optional[float]:
@@ -519,27 +526,33 @@ def usage_rate_g_per_day(meta: PackageMeta, weighins: List[WeighIn]) -> Optional
 		return max(sum(rates) / len(rates), 0.0)
 
 
-def latest_state(meta: PackageMeta, weighins: List[WeighIn]) -> Tuple[datetime, float]:
+def latest_state(meta: PackageMeta, weighins: List[WeighIn]) -> Tuple[datetime, float, float]:
 	"""Return (timestamp, current_net_g). If no weigh-ins, fall back to initial."""
 	if weighins:
 		w = max(weighins, key=lambda wi: parse_iso8601_z(wi.timestamp))
 		t = parse_iso8601_z(w.timestamp)
-		n = net_from_gross(w.gross_g, get_tare(meta))
-		return t, n
-	# Fallback
-	t0 = parse_iso8601_z(meta.created_at) if meta.created_at else now_utc()
-	n0 = meta.initial_net_g or 0.0
-	return t0, n0
+		last_gross = w.gross_g
+		tare = get_tare(meta)
+		n = net_from_gross(last_gross, tare)
+		return t, last_gross, n
+	else:
+		if not meta.created_at:
+			raise ValueError(f"Package {meta.id} has no created_at timestamp")
+		t0 = parse_iso8601_z(meta.created_at)
+		last_gross = meta.initial_gross_g or 0.0
+		n0 = meta.initial_net_g or 0.0
+		return t0, last_gross, n0
 
 
 def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetime] = None) -> Dict[str, Any]:
 	as_of = as_of or now_utc()
 	rate = usage_rate_g_per_day(meta, weighins)  # may be None
-	last_ts, current_net = latest_state(meta, weighins)
+	last_ts, last_gross, current_net = latest_state(meta, weighins)
 
 	result: Dict[str, Any] = {
 		"package_id": meta.id,
 		"last_weigh_in_at": to_iso_z(last_ts),
+		"last_weigh_in_gross_g": last_gross,
 		"as_of": to_iso_z(as_of),
 		"current_net_g": round(current_net, 3),
 		"usage_g_per_day": round(rate, 4) if rate is not None else None,
@@ -711,15 +724,17 @@ def cmd_weigh(args: argparse.Namespace) -> int:
 
 	conn = get_db_connection(db_path)
 	conn.execute("INSERT INTO weighins (package_id, timestamp, gross_g, note) VALUES (?, ?, ?, ?)", (args.id, to_iso_z(ts), args.gross_g, args.note))
-	computed_net = net_from_gross(args.gross_g, get_tare(meta))
 	if args.finished:
 		finished_date = to_iso_z(ts)
-		# Calculate discrepancy: computed net weight (from latest weigh-in) - actual (0)
-        # simplify this to just set `discrepancy` to the computed net weight
-		discrepancy = computed_net
+		# Calculate discrepancy using unclipped net weight to capture actual discrepancy
+		# even when gross < tare (which would give negative net)
+		computed_net_unclipped = net_from_gross_unclipped(args.gross_g, get_tare(meta))
+		discrepancy = computed_net_unclipped
 		conn.execute("UPDATE packages SET finished = 1, finished_date = ?, weight_discrepancy_g = ? WHERE id = ?", (finished_date, discrepancy, args.id))
 	conn.commit()
 	conn.close()
+	# Use clipped net for display (for consistency with forecasting)
+	computed_net = net_from_gross(args.gross_g, get_tare(meta))
 	print(f"Recorded weigh-in for {args.id}: gross={args.gross_g:.3f}g net={computed_net:.3f}g @ {to_iso_z(ts)}")
 	if args.finished:
 		print(f"Marked package {args.id} as finished.")
@@ -746,7 +761,9 @@ def cmd_report(args: argparse.Namespace) -> int:
 	# Human-friendly output
 	print(f"Package: {data['package_id']}")
 	print(f"As of: {data['as_of']}")
-	print(f"Last weigh-in: {data['last_weigh_in_at']}")
+	print(f"Initial gross: {meta.initial_gross_g:.2f}g at {meta.created_at}")
+	print(f"Initial net: {meta.initial_net_g:.2f}g")
+	print(f"Last weigh-in: gross {data['last_weigh_in_gross_g']:.2f}g at {data['last_weigh_in_at']}")
 	print(f"Current net: {data['current_net_g']} g")
 	print(f"Usage: {data['usage_g_per_day']} g/day")
 	print(f"Depletion: {data['estimated_depletion_date']}")
@@ -854,10 +871,17 @@ def cmd_finish(args: argparse.Namespace) -> int:
 		print(f"Package {args.id} is already finished.", file=sys.stderr)
 		return 1
 
-	# Calculate discrepancy: computed net weight - actual (0). Simplify this to just set `discrepancy` to the computed net weight
+	# Calculate discrepancy using unclipped net weight to capture actual discrepancy
+	# even when gross < tare (which would give negative net)
 	weighins = list_weighins(db_path, args.id)
-	_, computed_net = latest_state(meta, weighins)
-	discrepancy = computed_net
+	if weighins:
+		# Get the latest weigh-in directly to calculate unclipped net
+		w = max(weighins, key=lambda wi: parse_iso8601_z(wi.timestamp))
+		computed_net_unclipped = net_from_gross_unclipped(w.gross_g, get_tare(meta))
+		discrepancy = computed_net_unclipped
+	else:
+		# No weigh-ins, use initial net weight
+		discrepancy = meta.initial_net_g if meta.initial_net_g is not None else 0.0
 
 	conn = get_db_connection(db_path)
 	finished_date = to_iso_z(now_utc())
