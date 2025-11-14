@@ -966,11 +966,20 @@ def cmd_history(args: argparse.Namespace) -> int:
             timestamp_dt = parse_iso8601_z(w.timestamp)
             net = net_from_gross_unclipped(w.gross_g, tare)  # Use unclipped for analysis
             net_clipped = net_from_gross(w.gross_g, tare)  # Clipped for display
+            usage = 0.0
 
             notes:List[str] = []
             
-            # Check for discrepancies
             if prev_gross is not None:
+                # Compute the usage based on gross weight
+                if prev_timestamp is not None:
+                    days_diff = (timestamp_dt - prev_timestamp).total_seconds() / 86400.0
+                    if days_diff > 0:
+                        usage = (prev_gross - w.gross_g) / days_diff
+                else:
+                    usage = 0.0
+
+                # Check for discrepancies
                 # Weight increase (shouldn't happen)
                 if w.gross_g > prev_gross:
                     increase = w.gross_g - prev_gross
@@ -1010,6 +1019,7 @@ def cmd_history(args: argparse.Namespace) -> int:
                 "gross_g": w.gross_g,
                 "net_g": net_clipped,  # Use clipped for display
                 "net_g_unclipped": net,  # Keep unclipped for analysis
+                "usage_g": usage,
                 "note": w.note,
                 "is_initial": False
             })
@@ -1093,7 +1103,7 @@ def cmd_history(args: argparse.Namespace) -> int:
     
     print("Weight History:")
     print("-" * 150)
-    print(f"{'Timestamp':<20} {'Gross (g)':<12} {'Net Clipped':<12} {'Net Unclipped':<14} {'Δ Clipped':<12} {'Δ Unclipped':<13} {'Δ Diff':<10} {'Note':<20}")
+    print(f"{'Timestamp':<20} {'Gross (g)':<12} {'Net Clipped':<12} {'Net Unclipped':<14} {'Δ Clipped':<12} {'Δ Unclipped':<13} {'Δ Diff':<10} {'Usage (g/day)':<14} {'Note':<20}")
     print("-" * 150)
     
     prev_net_clipped: Optional[float] = None
@@ -1103,6 +1113,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         gross = point["gross_g"]
         net_clipped = point["net_g"]
         net_unclipped = point.get("net_g_unclipped", net_clipped)  # Fallback to clipped if unclipped not available
+        usage_g = point.get("usage_g", 0.0)
         
         # Calculate changes
         if prev_net_clipped is not None and prev_net_unclipped is not None:
@@ -1119,7 +1130,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         
         note = point.get("note", "") or ""
         
-        print(f"{timestamp_str:<20} {gross:<12.2f} {net_clipped:<12.2f} {net_unclipped:<14.2f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {note:<20}")
+        print(f"{timestamp_str:<20} {gross:<12.2f} {net_clipped:<12.2f} {net_unclipped:<14.2f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {usage_g:<14.2f} {note:<20}")
         
         prev_net_clipped = net_clipped
         prev_net_unclipped = net_unclipped
