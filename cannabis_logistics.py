@@ -709,6 +709,11 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_weigh(args: argparse.Namespace) -> int:
+	# Check gross weight
+	if args.gross_g <= 0:
+		print("Error: gross weight must be greater than 0.00g", file=sys.stderr)
+		return 1
+
 	db_path = db_path_from_env_or_arg(args.base)
 	try:
 		meta = load_package(db_path, args.id)
@@ -739,10 +744,10 @@ def cmd_weigh(args: argparse.Namespace) -> int:
 	conn.close()
 	# Use clipped net for display (for consistency with forecasting)
 	computed_net = net_from_gross(args.gross_g, get_tare(meta))
-	print(f"Recorded weigh-in for {args.id}: gross={args.gross_g:.3f}g net={computed_net:.3f}g @ {to_iso_z(ts)}")
+	print(f"Recorded weigh-in for {args.id}: gross={args.gross_g:.2f}g net={computed_net:.2f}g @ {to_iso_z(ts)}")
 	if args.finished:
 		print(f"Marked package {args.id} as finished.")
-		print(f"Weight discrepancy: {discrepancy:.3f}g")
+		print(f"Weight discrepancy: {discrepancy:.2f}g")
 	return 0
 
 
@@ -1012,6 +1017,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 					f"when package was marked finished. This suggests measurement error or "
 					f"incomplete consumption tracking."
 				)
+		history_points[-1]["is_finished"] = True
 	
 	# Check for missing weigh-ins (large gaps)
 	if len(history_points) >= 2:
@@ -1092,6 +1098,8 @@ def cmd_history(args: argparse.Namespace) -> int:
 		note = point.get("note", "") or ""
 		if point.get("is_initial"):
 			note = "Initial" if not note else f"Initial: {note}"
+		elif point.get("is_finished"):
+			note = "Finished" if not note else f"Finished: {note}"
 		
 		print(f"{timestamp_str:<20} {gross:<12.3f} {net_clipped:<12.3f} {net_unclipped:<14.3f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {note:<20}")
 		
