@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Medical cannabis logistics CLI: periodic weigh-ins -> average usage -> reorder forecast
-- Subcommands: init, weigh, report, list, check
+- Subcommands: init, weigh, report, list, check, finish, reorder, edit, history
 - Exposes main(argv) for easy testing (repo convention)
 
 Exit codes
@@ -921,6 +921,187 @@ def cmd_reorder(args: argparse.Namespace) -> int:
 	print(f"Marked package {args.id} as reordered on {reorder_date}.")
 	return 0
 
+
+def cmd_history(args: argparse.Namespace) -> int:
+	"""Output full history of a package with weight analysis."""
+	db_path = db_path_from_env_or_arg(args.base)
+	try:
+		meta = load_package(db_path, args.id)
+	except FileNotFoundError as e:
+		print(str(e), file=sys.stderr)
+		return 1
+
+	weighins = list_weighins(db_path, args.id)
+	tare = get_tare(meta)
+	
+	# Build history data points including initial state
+	history_points: List[Dict[str, Any]] = []
+	discrepancies: List[str] = []
+	
+	# Add initial state
+	if meta.created_at:
+		initial_net = meta.initial_net_g if meta.initial_net_g is not None else 0.0
+		history_points.append({
+			"timestamp": meta.created_at,
+			"gross_g": meta.initial_gross_g,
+			"net_g": initial_net,
+			"note": "Initial state",
+			"is_initial": True
+		})
+	
+	# Add all weigh-ins
+	prev_gross: Optional[float] = meta.initial_gross_g
+	prev_net: Optional[float] = meta.initial_net_g
+	prev_timestamp: Optional[datetime] = parse_iso8601_z(meta.created_at) if meta.created_at else None
+	
+	for w in weighins:
+		try:
+			timestamp_dt = parse_iso8601_z(w.timestamp)
+			net = net_from_gross_unclipped(w.gross_g, tare)  # Use unclipped for analysis
+			net_clipped = net_from_gross(w.gross_g, tare)  # Clipped for display
+			
+			# Check for discrepancies
+			if prev_gross is not None:
+				# Weight increase (shouldn't happen)
+				if w.gross_g > prev_gross:
+					increase = w.gross_g - prev_gross
+					discrepancies.append(
+						f"⚠️  Weight INCREASE detected at {w.timestamp}: "
+						f"gross increased by {increase:.3f}g "
+						f"(from {prev_gross:.3f}g to {w.gross_g:.3f}g). "
+						"This should not happen - possible measurement error or data entry mistake."
+					)
+				
+				# Check for unusually large consumption (more than 2g/day might be suspicious)
+				if prev_timestamp and prev_net is not None:
+					days_diff = (timestamp_dt - prev_timestamp).total_seconds() / 86400.0
+					if days_diff > 0:
+						consumed = prev_net - net
+						rate = consumed / days_diff if days_diff > 0 else 0
+						if rate > 2.0:  # More than 2g/day is unusual
+							discrepancies.append(
+								f"⚠️  Unusually high consumption rate at {w.timestamp}: "
+								f"{rate:.2f}g/day over {days_diff:.1f} days "
+								f"(consumed {consumed:.3f}g). This may indicate a measurement error."
+							)
+			
+			history_points.append({
+				"timestamp": w.timestamp,
+				"gross_g": w.gross_g,
+				"net_g": net_clipped,  # Use clipped for display
+				"net_g_unclipped": net,  # Keep unclipped for analysis
+				"note": w.note,
+				"is_initial": False
+			})
+			
+			prev_gross = w.gross_g
+			prev_net = net
+			prev_timestamp = timestamp_dt
+		except Exception as e:
+			discrepancies.append(f"⚠️  Error processing weigh-in at {w.timestamp}: {e}")
+			continue
+	
+	# Check final state if finished
+	if meta.finished:
+		if meta.weight_discrepancy_g is not None:
+			if abs(meta.weight_discrepancy_g) > 0.1:  # More than 0.1g discrepancy
+				discrepancies.append(
+					f"⚠️  Final weight discrepancy: {meta.weight_discrepancy_g:.3f}g remaining "
+					f"when package was marked finished. This suggests measurement error or "
+					f"incomplete consumption tracking."
+				)
+	
+	# Check for missing weigh-ins (large gaps)
+	if len(history_points) >= 2:
+		for i in range(1, len(history_points)):
+			try:
+				prev_ts = parse_iso8601_z(history_points[i-1]["timestamp"])
+				curr_ts = parse_iso8601_z(history_points[i]["timestamp"])
+				days_diff = (curr_ts - prev_ts).total_seconds() / 86400.0
+				if days_diff > 30:  # More than 30 days between weigh-ins
+					discrepancies.append(
+						f"⚠️  Large gap between weigh-ins: {days_diff:.1f} days "
+						f"(from {history_points[i-1]['timestamp']} to {history_points[i]['timestamp']}). "
+						"Consider more frequent weigh-ins for better tracking."
+					)
+			except Exception:
+				pass
+	
+	# Build output
+	output: Dict[str, Any] = {
+		"package_id": meta.id,
+		"name": meta.name,
+		"form": meta.form,
+		"initial_net_g": meta.initial_net_g,
+		"initial_gross_g": meta.initial_gross_g,
+		"tare_g": tare,
+		"created_at": meta.created_at,
+		"finished": meta.finished,
+		"finished_date": meta.finished_date,
+		"weight_discrepancy_g": meta.weight_discrepancy_g,
+		"history": history_points,
+		"discrepancies": discrepancies,
+		"total_weighins": len(weighins)
+	}
+	
+	if args.json:
+		print(json.dumps(output, indent=2))
+		return 0
+	
+	# Human-friendly output
+	print(f"Package History: {meta.id} ({meta.name})")
+	print(f"Form: {meta.form}")
+	print(f"Created: {meta.created_at}")
+	if meta.finished:
+		print(f"Finished: {meta.finished_date}")
+		if meta.weight_discrepancy_g is not None:
+			print(f"Final weight discrepancy: {meta.weight_discrepancy_g:.3f}g")
+	print(f"Initial: {meta.initial_gross_g:.3f}g gross, {meta.initial_net_g:.3f}g net")
+	if tare is not None:
+		print(f"Tare weight: {tare:.3f}g")
+	print()
+	
+	print("Weight History:")
+	print("-" * 80)
+	print(f"{'Timestamp':<20} {'Gross (g)':<12} {'Net (g)':<12} {'Change (g)':<12} {'Note':<20}")
+	print("-" * 80)
+	
+	prev_net_display: Optional[float] = None
+	for i, point in enumerate(history_points):
+		timestamp_str = point["timestamp"][:19].replace("T", " ")  # Format for display
+		gross = point["gross_g"]
+		net = point["net_g"]
+		
+		# Calculate change
+		if prev_net_display is not None:
+			change = net - prev_net_display
+			change_str = f"{change:+.3f}"
+		else:
+			change_str = "-"
+		
+		note = point.get("note", "") or ""
+		if point.get("is_initial"):
+			note = "Initial" if not note else f"Initial: {note}"
+		
+		print(f"{timestamp_str:<20} {gross:<12.3f} {net:<12.3f} {change_str:<12} {note:<20}")
+		
+		prev_net_display = net
+	
+	print("-" * 80)
+	print()
+	
+	# Show discrepancies
+	if discrepancies:
+		print("⚠️  Weight Analysis - Discrepancies and Potential Issues:")
+		print("-" * 80)
+		for disc in discrepancies:
+			print(disc)
+		print("-" * 80)
+	else:
+		print("✓ No discrepancies detected in weight history.")
+	
+	return 0
+
 def cmd_edit(args: argparse.Namespace) -> int:
 	db_path = db_path_from_env_or_arg(args.base)
 	try:
@@ -1091,6 +1272,13 @@ def build_parser() -> argparse.ArgumentParser:
 	prd.add_argument("--reorder-date", default=None, help="ISO-8601 timestamp for reorder date. Defaults to now UTC.")
 	prd.add_argument("--base", default=None, help="Base DB path")
 	prd.set_defaults(func=cmd_reorder)
+
+	# history
+	ph = sub.add_parser("history", help="Show full package history with weight analysis")
+	ph.add_argument("--id", required=True, help="Package ID")
+	ph.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+	ph.add_argument("--base", default=None, help="Base DB path")
+	ph.set_defaults(func=cmd_history)
 
 	return p
 
