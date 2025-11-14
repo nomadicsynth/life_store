@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ---------------- Database schema ----------------
-SCHEMA_VERSION = 4  # Incremented when schema changes
+SCHEMA_VERSION = 5  # Incremented when schema changes
 
 def get_schema_version(conn: sqlite3.Connection) -> int:
     """Get current schema version from database."""
@@ -122,6 +122,50 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
         if "lead_time_days" in columns:
             conn.execute("ALTER TABLE packages DROP COLUMN lead_time_days")
     
+    if current_version < 5:
+        # Version 4 -> 5: Add weight_discrepancy_g column to track discrepancy when package is finished
+        cursor = conn.execute("PRAGMA table_info(packages)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "weight_discrepancy_g" not in columns:
+            conn.execute("ALTER TABLE packages ADD COLUMN weight_discrepancy_g REAL")
+            
+            # Calculate discrepancy for existing finished packages
+            # For each finished package, get the latest weigh-in and calculate net weight
+            # Discrepancy = computed_net - actual (where actual is 0 when finished)
+            finished_packages = conn.execute("""
+                SELECT id, initial_net_g, initial_gross_g 
+                FROM packages 
+                WHERE finished = 1
+            """).fetchall()
+            
+            for pkg_id, initial_net_g, initial_gross_g in finished_packages:
+                # Get the latest weigh-in for this package
+                latest_weighin = conn.execute("""
+                    SELECT gross_g 
+                    FROM weighins 
+                    WHERE package_id = ? 
+                    ORDER BY timestamp DESC 
+                    LIMIT 1
+                """, (pkg_id,)).fetchone()
+                
+                if latest_weighin:
+                    # Calculate computed net weight from latest weigh-in
+                    gross_g = latest_weighin[0]
+                    tare = initial_gross_g - initial_net_g if (initial_gross_g is not None and initial_net_g is not None) else None
+                    computed_net = max(gross_g - tare, 0.0) if tare is not None else gross_g
+                    # Discrepancy = computed_net
+                    discrepancy = computed_net
+                else:
+                    # No weigh-ins, discrepancy = 0.0 to avoid biasing reports with incorrect values
+                    discrepancy = 0.0
+                
+                # Update the package with the calculated discrepancy
+                conn.execute("""
+                    UPDATE packages 
+                    SET weight_discrepancy_g = ? 
+                    WHERE id = ?
+                """, (discrepancy, pkg_id))
+    
     # Update to current schema version
     set_schema_version(conn, SCHEMA_VERSION)
     conn.commit()
@@ -148,7 +192,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
             finished INTEGER DEFAULT 0,
             finished_date TEXT,
             reordered INTEGER DEFAULT 0,
-            reordered_date TEXT
+            reordered_date TEXT,
+            weight_discrepancy_g REAL
         )
     """)
     conn.execute("""
@@ -209,6 +254,7 @@ class PackageMeta:
 	finished_date: Optional[str] = None
 	reordered: bool = False
 	reordered_date: Optional[str] = None
+	weight_discrepancy_g: Optional[float] = None
 
 
 @dataclass
@@ -297,7 +343,8 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
         finished=bool(row["finished"]) if "finished" in row.keys() and row["finished"] is not None else False,
         finished_date=row["finished_date"] if "finished_date" in row.keys() and row["finished_date"] else None,
         reordered=bool(row["reordered"]) if "reordered" in row.keys() and row["reordered"] is not None else False,
-        reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None
+        reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None,
+        weight_discrepancy_g=row["weight_discrepancy_g"] if "weight_discrepancy_g" in row.keys() and row["weight_discrepancy_g"] is not None else None
     )
     conn.close()
     return meta
@@ -327,7 +374,8 @@ def iter_packages(db_path: Path) -> List[PackageMeta]:
             finished=bool(row["finished"]) if "finished" in row.keys() and row["finished"] is not None else False,
             finished_date=row["finished_date"] if "finished_date" in row.keys() and row["finished_date"] else None,
             reordered=bool(row["reordered"]) if "reordered" in row.keys() and row["reordered"] is not None else False,
-            reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None
+            reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None,
+            weight_discrepancy_g=row["weight_discrepancy_g"] if "weight_discrepancy_g" in row.keys() and row["weight_discrepancy_g"] is not None else None
         )
         packages.append(meta)
     conn.close()
@@ -631,12 +679,12 @@ def cmd_init(args: argparse.Namespace) -> int:
 	conn.execute("""
 		INSERT OR REPLACE INTO packages 
 		(id, name, form, initial_net_g, initial_gross_g, transit_days, dispensary_processing_days, 
-		 post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, package_cost, created_at, finished, finished_date, reordered, reordered_date) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, package_cost, created_at, finished, finished_date, reordered, reordered_date, weight_discrepancy_g) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	""",
 		(args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, 
 		 args.transit_days, args.dispensary_processing_days, args.post_office_processing_days,
-		 args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, args.package_cost, created_at, 0, None, 0, None))
+		 args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, args.package_cost, created_at, 0, None, 0, None, None))
 	conn.commit()
 	conn.close()
 	print(f"Initialized package {args.id}")
@@ -663,15 +711,19 @@ def cmd_weigh(args: argparse.Namespace) -> int:
 
 	conn = get_db_connection(db_path)
 	conn.execute("INSERT INTO weighins (package_id, timestamp, gross_g, note) VALUES (?, ?, ?, ?)", (args.id, to_iso_z(ts), args.gross_g, args.note))
+	computed_net = net_from_gross(args.gross_g, get_tare(meta))
 	if args.finished:
 		finished_date = to_iso_z(ts)
-		conn.execute("UPDATE packages SET finished = 1, finished_date = ? WHERE id = ?", (finished_date, args.id))
+		# Calculate discrepancy: computed net weight (from latest weigh-in) - actual (0)
+        # simplify this to just set `discrepancy` to the computed net weight
+		discrepancy = computed_net
+		conn.execute("UPDATE packages SET finished = 1, finished_date = ?, weight_discrepancy_g = ? WHERE id = ?", (finished_date, discrepancy, args.id))
 	conn.commit()
 	conn.close()
-	new_net = net_from_gross(args.gross_g, get_tare(meta))
-	print(f"Recorded weigh-in for {args.id}: gross={args.gross_g:.3f}g net={new_net:.3f}g @ {to_iso_z(ts)}")
+	print(f"Recorded weigh-in for {args.id}: gross={args.gross_g:.3f}g net={computed_net:.3f}g @ {to_iso_z(ts)}")
 	if args.finished:
 		print(f"Marked package {args.id} as finished.")
+		print(f"Weight discrepancy: {discrepancy:.3f}g")
 	return 0
 
 
@@ -711,6 +763,10 @@ def cmd_report(args: argparse.Namespace) -> int:
 			status_date = data.get("finished_date")
 			status += f" on {status_date}"
 	print(f"Status: {status}")
+	
+	# Show weight discrepancy if package is finished
+	if meta.finished and meta.weight_discrepancy_g is not None:
+		print(f"Weight discrepancy: {meta.weight_discrepancy_g:.2f}g")
 
 	# Set the action
 	action = "No action required"
@@ -798,12 +854,18 @@ def cmd_finish(args: argparse.Namespace) -> int:
 		print(f"Package {args.id} is already finished.", file=sys.stderr)
 		return 1
 
+	# Calculate discrepancy: computed net weight - actual (0). Simplify this to just set `discrepancy` to the computed net weight
+	weighins = list_weighins(db_path, args.id)
+	_, computed_net = latest_state(meta, weighins)
+	discrepancy = computed_net
+
 	conn = get_db_connection(db_path)
 	finished_date = to_iso_z(now_utc())
-	conn.execute("UPDATE packages SET finished = 1, finished_date = ? WHERE id = ?", (finished_date, args.id))
+	conn.execute("UPDATE packages SET finished = 1, finished_date = ?, weight_discrepancy_g = ? WHERE id = ?", (finished_date, discrepancy, args.id))
 	conn.commit()
 	conn.close()
 	print(f"Marked package {args.id} as finished.")
+	print(f"Weight discrepancy: {discrepancy:.2f}g")
 	return 0
 
 
