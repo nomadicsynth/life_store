@@ -130,6 +130,7 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
             conn.execute("ALTER TABLE packages ADD COLUMN weight_discrepancy_g REAL")
             
             # Clear any discrepancy values for unfinished packages (safety check)
+			# TODO: not sure if this is needed. think it through and remove if redundant.
             conn.execute("UPDATE packages SET weight_discrepancy_g = NULL WHERE finished = 0")
             
             # Calculate discrepancy for existing finished packages
