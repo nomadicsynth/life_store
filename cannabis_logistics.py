@@ -952,7 +952,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 			"gross_g": meta.initial_gross_g,
 			"net_g": initial_net,
 			"net_g_unclipped": initial_net,
-			"note": "Initial state",
+			"note": "initial state",
 			"is_initial": True
 		})
 	
@@ -966,6 +966,8 @@ def cmd_history(args: argparse.Namespace) -> int:
 			timestamp_dt = parse_iso8601_z(w.timestamp)
 			net = net_from_gross_unclipped(w.gross_g, tare)  # Use unclipped for analysis
 			net_clipped = net_from_gross(w.gross_g, tare)  # Clipped for display
+
+			notes:List[str] = []
 			
 			# Check for discrepancies
 			if prev_gross is not None:
@@ -978,7 +980,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 						f"(from {prev_gross:.2f}g to {w.gross_g:.2f}g). "
 						"This should not happen - possible measurement error or data entry mistake."
 					)
-				
+					notes.append(f"gross increased!")
 				# Check for unusually large consumption (more than 2g/day might be suspicious)
 				if prev_timestamp and prev_net is not None:
 					days_diff = (timestamp_dt - prev_timestamp).total_seconds() / 86400.0
@@ -991,6 +993,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 								f"{rate:.2f}g/day over {days_diff:.1f} days "
 								f"(consumed {consumed:.2f}g). This may indicate a measurement error."
 							)
+							notes.append(f"high consumption!")
 
 			# Gross g is zero or negative
 			if w.gross_g <= 0:
@@ -998,7 +1001,9 @@ def cmd_history(args: argparse.Namespace) -> int:
 					f"⚠️  Gross weight is zero or negative at {w.timestamp}: "
 					f"gross={w.gross_g:.2f}g. This should not happen - possible measurement error or data entry mistake."
 				)
-				w.note = f"gross <= 0.00g! {w.note}"
+				notes.append(f"gross <= zero!")
+
+			w.note = ", ".join(notes)
 			
 			history_points.append({
 				"timestamp": w.timestamp,
@@ -1026,6 +1031,9 @@ def cmd_history(args: argparse.Namespace) -> int:
 					f"incomplete consumption tracking."
 				)
 		history_points[-1]["is_finished"] = True
+		if len(history_points[-1]["note"]) > 0:
+			history_points[-1]["note"] += ", "
+		history_points[-1]["note"] += f"marked finished"
 	
 	# Check for missing weigh-ins (large gaps)
 	if len(history_points) >= 2:
@@ -1040,6 +1048,9 @@ def cmd_history(args: argparse.Namespace) -> int:
 						f"(from {history_points[i-1]['timestamp']} to {history_points[i]['timestamp']}). "
 						"Consider more frequent weigh-ins for better tracking."
 					)
+					if len(history_points[i]["note"]) > 0:
+						history_points[i]["note"] += ", "
+					history_points[i]["note"] += f"large gap!"
 			except Exception:
 				pass
 	
@@ -1104,10 +1115,6 @@ def cmd_history(args: argparse.Namespace) -> int:
 			delta_diff_str = " 0.000"
 		
 		note = point.get("note", "") or ""
-		if point.get("is_initial"):
-			note = "Initial" if not note else f"Initial: {note}"
-		elif point.get("is_finished"):
-			note = "Finished" if not note else f"Finished: {note}"
 		
 		print(f"{timestamp_str:<20} {gross:<12.2f} {net_clipped:<12.2f} {net_unclipped:<14.2f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {note:<20}")
 		
