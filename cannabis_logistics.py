@@ -980,7 +980,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 						f"(from {prev_gross:.2f}g to {w.gross_g:.2f}g). "
 						"This should not happen - possible measurement error or data entry mistake."
 					)
-					notes.append(f"gross increased!")
+					notes.append(f"gross increased")
 				# Check for unusually large consumption (more than 2g/day might be suspicious)
 				if prev_timestamp and prev_net is not None:
 					days_diff = (timestamp_dt - prev_timestamp).total_seconds() / 86400.0
@@ -993,7 +993,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 								f"{rate:.2f}g/day over {days_diff:.1f} days "
 								f"(consumed {consumed:.2f}g). This may indicate a measurement error."
 							)
-							notes.append(f"high consumption!")
+							notes.append(f"high consumption")
 
 			# Gross g is zero or negative
 			if w.gross_g <= 0:
@@ -1001,7 +1001,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 					f"⚠️  Gross weight is zero or negative at {w.timestamp}: "
 					f"gross={w.gross_g:.2f}g. This should not happen - possible measurement error or data entry mistake."
 				)
-				notes.append(f"gross <= zero!")
+				notes.append(f"gross <= zero")
 
 			w.note = ", ".join(notes)
 			
@@ -1030,6 +1030,9 @@ def cmd_history(args: argparse.Namespace) -> int:
 					f"when package was marked finished. This suggests measurement error or "
 					f"incomplete consumption tracking."
 				)
+				if len(history_points[-1]["note"]) > 0:
+					history_points[-1]["note"] += ", "
+				history_points[-1]["note"] += "net discrepancy"
 		history_points[-1]["is_finished"] = True
 		if len(history_points[-1]["note"]) > 0:
 			history_points[-1]["note"] += ", "
@@ -1050,7 +1053,7 @@ def cmd_history(args: argparse.Namespace) -> int:
 					)
 					if len(history_points[i]["note"]) > 0:
 						history_points[i]["note"] += ", "
-					history_points[i]["note"] += f"large gap!"
+					history_points[i]["note"] += f"large gap"
 			except Exception:
 				pass
 	
@@ -1089,9 +1092,9 @@ def cmd_history(args: argparse.Namespace) -> int:
 	print()
 	
 	print("Weight History:")
-	print("-" * 120)
+	print("-" * 150)
 	print(f"{'Timestamp':<20} {'Gross (g)':<12} {'Net Clipped':<12} {'Net Unclipped':<14} {'Δ Clipped':<12} {'Δ Unclipped':<13} {'Δ Diff':<10} {'Note':<20}")
-	print("-" * 120)
+	print("-" * 150)
 	
 	prev_net_clipped: Optional[float] = None
 	prev_net_unclipped: Optional[float] = None
@@ -1121,16 +1124,16 @@ def cmd_history(args: argparse.Namespace) -> int:
 		prev_net_clipped = net_clipped
 		prev_net_unclipped = net_unclipped
 	
-	print("-" * 120)
+	print("-" * 150)
 	print()
 	
 	# Show discrepancies
 	if discrepancies:
 		print("⚠️  Weight Analysis - Discrepancies and Potential Issues:")
-		print("-" * 80)
+		print("-" * 150)
 		for disc in discrepancies:
 			print(disc)
-		print("-" * 80)
+		print("-" * 150)
 	else:
 		print("✓ No discrepancies detected in weight history.")
 	
