@@ -941,10 +941,12 @@ def cmd_history(args: argparse.Namespace) -> int:
 	# Add initial state
 	if meta.created_at:
 		initial_net = meta.initial_net_g if meta.initial_net_g is not None else 0.0
+		# For initial state, clipped and unclipped are the same (no clipping needed at start)
 		history_points.append({
 			"timestamp": meta.created_at,
 			"gross_g": meta.initial_gross_g,
 			"net_g": initial_net,
+			"net_g_unclipped": initial_net,
 			"note": "Initial state",
 			"is_initial": True
 		})
@@ -1062,32 +1064,41 @@ def cmd_history(args: argparse.Namespace) -> int:
 	print()
 	
 	print("Weight History:")
-	print("-" * 80)
-	print(f"{'Timestamp':<20} {'Gross (g)':<12} {'Net (g)':<12} {'Change (g)':<12} {'Note':<20}")
-	print("-" * 80)
+	print("-" * 120)
+	print(f"{'Timestamp':<20} {'Gross (g)':<12} {'Net Clipped':<12} {'Net Unclipped':<14} {'Δ Clipped':<12} {'Δ Unclipped':<13} {'Δ Diff':<10} {'Note':<20}")
+	print("-" * 120)
 	
-	prev_net_display: Optional[float] = None
+	prev_net_clipped: Optional[float] = None
+	prev_net_unclipped: Optional[float] = None
 	for i, point in enumerate(history_points):
 		timestamp_str = point["timestamp"][:19].replace("T", " ")  # Format for display
 		gross = point["gross_g"]
-		net = point["net_g"]
+		net_clipped = point["net_g"]
+		net_unclipped = point.get("net_g_unclipped", net_clipped)  # Fallback to clipped if unclipped not available
 		
-		# Calculate change
-		if prev_net_display is not None:
-			change = net - prev_net_display
-			change_str = f"{change:+.3f}"
+		# Calculate changes
+		if prev_net_clipped is not None and prev_net_unclipped is not None:
+			delta_clipped = net_clipped - prev_net_clipped
+			delta_unclipped = net_unclipped - prev_net_unclipped
+			delta_diff = delta_unclipped - delta_clipped
+			delta_clipped_str = f"{delta_clipped: .3f}"
+			delta_unclipped_str = f"{delta_unclipped: .3f}"
+			delta_diff_str = f"{delta_diff: .3f}"
 		else:
-			change_str = "-"
+			delta_clipped_str = " 0.000"
+			delta_unclipped_str = " 0.000"
+			delta_diff_str = " 0.000"
 		
 		note = point.get("note", "") or ""
 		if point.get("is_initial"):
 			note = "Initial" if not note else f"Initial: {note}"
 		
-		print(f"{timestamp_str:<20} {gross:<12.3f} {net:<12.3f} {change_str:<12} {note:<20}")
+		print(f"{timestamp_str:<20} {gross:<12.3f} {net_clipped:<12.3f} {net_unclipped:<14.3f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {note:<20}")
 		
-		prev_net_display = net
+		prev_net_clipped = net_clipped
+		prev_net_unclipped = net_unclipped
 	
-	print("-" * 80)
+	print("-" * 120)
 	print()
 	
 	# Show discrepancies
