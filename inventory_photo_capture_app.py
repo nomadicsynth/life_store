@@ -150,6 +150,8 @@ with gr.Blocks() as demo:
     save_btn.click(fn=save_photos, inputs=[photos_state, box_dropdown, item_id, auto_generate, item_title, item_description], outputs=save_status).then(
         fn=post_save_reset, inputs=save_status, outputs=[photos_state, gallery, cam, item_id, save_status]
     )
+    # Refresh dropdown choices when component loads (e.g., on page refresh)
+    demo.load(fn=lambda: gr.update(choices=list_boxes()), inputs=None, outputs=[box_dropdown])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Inventory photo capture app")
