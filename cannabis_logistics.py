@@ -751,6 +751,27 @@ def cmd_weigh(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_unweigh(args: argparse.Namespace) -> int:
+    db_path = db_path_from_env_or_arg(args.base)
+    try:
+        meta = load_package(db_path, args.id)
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    weighins = list_weighins(db_path, args.id)
+    if not weighins:
+        print(f"No weigh-ins found for package {args.id}", file=sys.stderr)
+        return 1
+    last_weighin = weighins[-1]
+    conn = get_db_connection(db_path)
+    conn.execute("DELETE FROM weighins WHERE package_id = ? AND timestamp = ?", (args.id, last_weighin.timestamp))
+    conn.commit()
+    conn.close()
+    print(f"Undone weigh-in for {args.id} at {last_weighin.timestamp}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     db_path = db_path_from_env_or_arg(args.base)
     try:
@@ -1266,6 +1287,12 @@ def build_parser() -> argparse.ArgumentParser:
     pw.add_argument("--finished", action="store_true", help="Mark the package as finished after this weigh-in")
     pw.add_argument("--base", default=None, help="Base DB path")
     pw.set_defaults(func=cmd_weigh)
+
+    # unweigh
+    pu = sub.add_parser("unweigh", help="Undo the last weigh-in for a package")
+    pu.add_argument("--id", required=True, help="Package ID")
+    pu.add_argument("--base", default=None, help="Base DB path")
+    pu.set_defaults(func=cmd_unweigh)
 
     # report
     pr = sub.add_parser("report", help="Show usage and reorder forecast")
