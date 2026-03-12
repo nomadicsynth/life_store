@@ -763,7 +763,9 @@ def cmd_unweigh(args: argparse.Namespace) -> int:
     if not weighins:
         print(f"No weigh-ins found for package {args.id}", file=sys.stderr)
         return 1
-    last_weighin = weighins[-1]
+    # last_weighin = weighins[-1]
+    # last weighin is the weighin with the latest timestamp
+    last_weighin = max(weighins, key=lambda wi: parse_iso8601_z(wi.timestamp))
     conn = get_db_connection(db_path)
     conn.execute("DELETE FROM weighins WHERE package_id = ? AND timestamp = ?", (args.id, last_weighin.timestamp))
     conn.commit()
