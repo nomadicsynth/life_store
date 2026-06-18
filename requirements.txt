@@ -1,7 +1,0 @@
-gradio[mcp]
-scikit-learn
-numpy
-requests
-jsonschema
-pytest
-python-dotenv
