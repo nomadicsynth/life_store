@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!./.venv/bin/python3
 """
 Medical cannabis logistics CLI: periodic weigh-ins -> average usage -> reorder forecast
 - Subcommands: init, weigh, report, list, check, finish, reorder, edit, history
@@ -571,6 +571,8 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
         "reordered_date": meta.reordered_date,
         "package_cost": meta.package_cost,
         "cost_per_gram": round(meta.package_cost / meta.initial_net_g, 2) if meta.package_cost is not None and meta.initial_net_g and meta.initial_net_g > 0 else None,
+        "thc_percent": meta.thc_percent,
+        "cbd_percent": meta.cbd_percent,
     }
 
     if meta.finished:
@@ -694,12 +696,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         created_at = to_iso_z(now_utc())
     conn.execute("""
-        INSERT OR REPLACE INTO packages 
-        (id, name, form, initial_net_g, initial_gross_g, transit_days, dispensary_processing_days, 
-         post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, package_cost, created_at, finished, finished_date, reordered, reordered_date, weight_discrepancy_g) 
+        INSERT OR REPLACE INTO packages
+        (id, name, form, initial_net_g, initial_gross_g, transit_days, dispensary_processing_days,
+         post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, package_cost, created_at, finished, finished_date, reordered, reordered_date, weight_discrepancy_g)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
-        (args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g, 
+        (args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g,
          args.transit_days, args.dispensary_processing_days, args.post_office_processing_days,
          args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, args.package_cost, created_at, 0, None, 0, None, None))
     conn.commit()
@@ -847,8 +849,49 @@ def cmd_list(args: argparse.Namespace) -> int:
         return 0
 
     for r in rows:
+        if r.get("finished") and not args.show_finished:
+            continue
         status = "FINISHED" if r.get("finished") else ("REORDER" if r.get("reorder_now") else "OK")
         print(f"- {r['package_id']}: {r['name']} [{r['form']}] | net {r['current_net_g']} g | usage {r['usage_g_per_day']} g/day | {status}")
+    return 0
+
+
+def cmd_usage(args: argparse.Namespace) -> int:
+    db_path = db_path_from_env_or_arg(args.base)
+    rows: List[Dict[str, Any]] = []
+    for meta in iter_packages(db_path):
+        data = forecast(meta, list_weighins(db_path, meta.id))
+        # enrich
+        data["name"] = meta.name
+        data["form"] = meta.form
+        rows.append(data)
+
+    if args.json:
+        print(json.dumps(rows, indent=2))
+        return 0
+
+    if not rows:
+        print("No packages found.")
+        return 0
+
+    print("Active packages current usage (g/day):")
+    usage_total = 0.0
+    thc_total = 0.0
+    cbd_total = 0.0
+    for r in rows:
+        if r.get("finished"):
+            continue
+        daily_grams = float(r['usage_g_per_day'])
+        usage_total += daily_grams
+        thc_pc = (r['thc_percent'] or 0.0) / 100
+        cbd_pc = (r['cbd_percent'] or 0.0) / 100
+        thc_total += thc_pc * daily_grams
+        cbd_total += cbd_pc * daily_grams
+        print(f"- {r['package_id']} thc {thc_pc:.0%} cbd {cbd_pc:.0%}: {daily_grams:.4f}")
+
+    print(f"\nCurrent usage: {usage_total:.4f} g/day")
+    print(f"THC: {thc_total*1000:.2f} mg/day")
+    print(f"CBD: {cbd_total*1000:.2f} mg/day")
     return 0
 
 
@@ -1155,10 +1198,10 @@ def cmd_history(args: argparse.Namespace) -> int:
         
         prev_net_clipped = net_clipped
         prev_net_unclipped = net_unclipped
-    
+
     print("-" * 150)
     print()
-    
+
     # Show discrepancies
     if discrepancies:
         print("⚠️  Weight Analysis - Discrepancies and Potential Issues:")
@@ -1168,7 +1211,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         print("-" * 150)
     else:
         print("✓ No discrepancies detected in weight history.")
-    
+
     return 0
 
 def cmd_edit(args: argparse.Namespace) -> int:
@@ -1180,11 +1223,11 @@ def cmd_edit(args: argparse.Namespace) -> int:
         return 1
 
     conn = get_db_connection(db_path)
-    
+
     # Build dynamic UPDATE statement based on provided fields
     updates = []
     values = []
-    
+
     if args.name is not None:
         updates.append("name = ?")
         values.append(args.name)
@@ -1231,18 +1274,18 @@ def cmd_edit(args: argparse.Namespace) -> int:
     if args.reordered is not None:
         updates.append("reordered = ?")
         values.append(int(args.reordered))
-    
+
     if not updates:
         print("No fields to update. Provide at least one field to edit.", file=sys.stderr)
         conn.close()
         return 1
-    
+
     values.append(args.id)
     update_sql = f"UPDATE packages SET {', '.join(updates)} WHERE id = ?"
     conn.execute(update_sql, values)
     conn.commit()
     conn.close()
-    
+
     updated_fields = [u.split(' =')[0] for u in updates]
     print(f"Updated package {args.id}: {', '.join(updated_fields)}")
     return 0
@@ -1304,9 +1347,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     # list
     pl = sub.add_parser("list", help="List packages with current status")
+    pl.add_argument("--show-finished", dest="show_finished", action="store_true", help="Show finished packages")
     pl.add_argument("--json", action="store_true", help="Emit machine-readable JSON array")
     pl.add_argument("--base", default=None, help="Base DB path")
     pl.set_defaults(func=cmd_list)
+
+    # usage
+    pu = sub.add_parser("usage", help="Show current usage")
+    pu.add_argument("--json", action="store_true", help="Emit machine-readable JSON array")
+    pu.add_argument("--base", default=None, help="Base DB path")
+    pu.set_defaults(func=cmd_usage)
 
     # check
     pc = sub.add_parser("check", help="Check reorder status; non-zero exit if reorder needed")
