@@ -866,10 +866,6 @@ def cmd_usage(args: argparse.Namespace) -> int:
         data["form"] = meta.form
         rows.append(data)
 
-    if args.json:
-        print(json.dumps(rows, indent=2))
-        return 0
-
     if not rows:
         print("No packages found.")
         return 0
@@ -1354,7 +1350,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     # usage
     pu = sub.add_parser("usage", help="Show current usage")
-    pu.add_argument("--json", action="store_true", help="Emit machine-readable JSON array")
     pu.add_argument("--base", default=None, help="Base DB path")
     pu.set_defaults(func=cmd_usage)
 
