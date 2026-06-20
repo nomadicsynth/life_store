@@ -1,7 +1,7 @@
 #!./.venv/bin/python3
 """
 Medical cannabis logistics CLI: periodic weigh-ins -> average usage -> reorder forecast
-- Subcommands: init, weigh, report, list, check, finish, reorder, edit, history
+- Subcommands: init, weigh, report, list, usage, check, finish, reorder, edit, history, export
 - Exposes main(argv) for easy testing (repo convention)
 
 Exit codes
@@ -12,6 +12,7 @@ Exit codes
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sqlite3
@@ -1314,6 +1315,341 @@ def cmd_edit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    """Export historical usage data to CSV for charting.
+
+    Each package gets an initial-state row followed by one row per weigh-in.
+    Columns include net weight (clipped and unclipped), daily usage rate,
+    and cumulative consumption so you can plot depletion curves or usage trends.
+
+    With --interpolate, fills in every calendar day between data points,
+    carrying forward the last known daily usage rate for each package.
+    """
+    db_path = db_path_from_env_or_arg(args.base)
+    output_path = Path(args.output)
+
+    conn = get_db_connection(db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Fetch all packages
+    packages_rows = conn.execute(
+        f"SELECT * FROM packages ORDER BY created_at, id"
+    ).fetchall()
+
+    # Fetch all weigh-ins
+    weighins_rows = conn.execute(
+        "SELECT package_id, timestamp, gross_g, note "
+        "FROM weighins ORDER BY package_id, timestamp"
+    ).fetchall()
+
+    # Group weigh-ins by package_id
+    weighins_by_pkg: Dict[str, List[sqlite3.Row]] = {}
+    for row in weighins_rows:
+        weighins_by_pkg.setdefault(row["package_id"], []).append(row)
+
+    conn.close()
+
+    # Write CSV
+    fieldnames = [
+        "date",
+        "package_id",
+        "package_name",
+        "form",
+        "gross_g",
+        "net_g",
+        "net_g_unclipped",
+        "daily_usage_g",
+        "cumulative_consumed_g",
+        "thc_percent",
+        "cbd_percent",
+        "note",
+    ]
+
+    if args.interpolate:
+        return _export_interpolate(
+            packages_rows, weighins_by_pkg, output_path, fieldnames
+        )
+    else:
+        return _export_raw(
+            packages_rows, weighins_by_pkg, output_path, fieldnames
+        )
+
+
+def _export_raw(
+    packages_rows: List[sqlite3.Row],
+    weighins_by_pkg: Dict[str, List[sqlite3.Row]],
+    output_path: Path,
+    fieldnames: List[str],
+) -> int:
+    """Export one row per data point (initial + weigh-ins)."""
+    total_rows = 0
+    with output_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for pkg_row in packages_rows:
+            pkg_id = pkg_row["id"]
+            tare = (
+                pkg_row["initial_gross_g"] - pkg_row["initial_net_g"]
+                if pkg_row["initial_gross_g"] is not None
+                and pkg_row["initial_net_g"] is not None
+                else None
+            )
+
+            pkg_weighins = weighins_by_pkg.get(pkg_id, [])
+            initial_net = pkg_row["initial_net_g"]
+            initial_gross = pkg_row["initial_gross_g"]
+
+            prev_gross: Optional[float] = None
+            prev_dt: Optional[datetime] = None
+
+            # --- Initial state row (if the package has a created_at timestamp) ---
+            if pkg_row["created_at"]:
+                try:
+                    init_dt = parse_iso8601_z(pkg_row["created_at"])
+                except Exception:
+                    init_dt = None
+
+                if init_dt is not None and initial_gross is not None:
+                    init_net_clip = net_from_gross(initial_gross, tare)
+                    init_net_unclip = (
+                        net_from_gross_unclipped(initial_gross, tare)
+                        if tare is not None
+                        else initial_gross
+                    )
+
+                    writer.writerow({
+                        "date": init_dt.strftime("%Y-%m-%d"),
+                        "package_id": pkg_id,
+                        "package_name": pkg_row["name"],
+                        "form": pkg_row["form"],
+                        "gross_g": round(initial_gross, 3),
+                        "net_g": round(init_net_clip, 4),
+                        "net_g_unclipped": round(init_net_unclip, 4),
+                        "daily_usage_g": "",
+                        "cumulative_consumed_g": 0.0,
+                        "thc_percent": pkg_row["thc_percent"],
+                        "cbd_percent": pkg_row["cbd_percent"],
+                        "note": "initial",
+                    })
+                    total_rows += 1
+                    prev_gross = initial_gross
+                    prev_dt = init_dt
+
+            # --- Weigh-in rows ---
+            for wi in pkg_weighins:
+                try:
+                    wi_dt = parse_iso8601_z(wi["timestamp"])
+                except Exception:
+                    continue
+
+                gross = wi["gross_g"]
+                net_clip = net_from_gross(gross, tare)
+                net_unclip = (
+                    net_from_gross_unclipped(gross, tare)
+                    if tare is not None
+                    else gross
+                )
+
+                # Daily usage rate vs previous point
+                daily_usage: Optional[float] = None
+                if prev_gross is not None and prev_dt is not None:
+                    days_diff = (wi_dt - prev_dt).total_seconds() / 86400.0
+                    if days_diff > 0:
+                        daily_usage = round((prev_gross - gross) / days_diff, 4)
+
+                # Cumulative consumed from initial
+                cumulative: Optional[float] = None
+                if initial_net is not None:
+                    cumulative = round(initial_net - net_unclip, 4)
+
+                writer.writerow({
+                    "date": wi_dt.strftime("%Y-%m-%d"),
+                    "package_id": pkg_id,
+                    "package_name": pkg_row["name"],
+                    "form": pkg_row["form"],
+                    "gross_g": round(gross, 3),
+                    "net_g": round(net_clip, 4),
+                    "net_g_unclipped": round(net_unclip, 4),
+                    "daily_usage_g": daily_usage,
+                    "cumulative_consumed_g": cumulative,
+                    "thc_percent": pkg_row["thc_percent"],
+                    "cbd_percent": pkg_row["cbd_percent"],
+                    "note": wi["note"] or "",
+                })
+                total_rows += 1
+
+                prev_gross = gross
+                prev_dt = wi_dt
+
+    print(f"Exported {total_rows} rows for {len(packages_rows)} packages to {output_path}")
+    return 0
+
+
+def _export_interpolate(
+    packages_rows: List[sqlite3.Row],
+    weighins_by_pkg: Dict[str, List[sqlite3.Row]],
+    output_path: Path,
+    fieldnames: List[str],
+) -> int:
+    """Export one row per package per calendar day, interpolating usage rates.
+
+    For each day in the global date range, outputs a row for each package
+    that was active on that day, carrying forward the last known daily
+    usage rate and linearly interpolating gross/net weights.
+    """
+    # Build data points per package: list of (datetime, gross_g)
+    pkg_points: Dict[str, List[Tuple[datetime, float]]] = {}
+    pkg_info: Dict[str, Dict[str, Any]] = {}
+
+    for pkg_row in packages_rows:
+        pkg_id = pkg_row["id"]
+        tare = (
+            pkg_row["initial_gross_g"] - pkg_row["initial_net_g"]
+            if pkg_row["initial_gross_g"] is not None
+            and pkg_row["initial_net_g"] is not None
+            else None
+        )
+
+        pkg_info[pkg_id] = {
+            "name": pkg_row["name"],
+            "form": pkg_row["form"],
+            "thc_percent": pkg_row["thc_percent"],
+            "cbd_percent": pkg_row["cbd_percent"],
+            "initial_net": pkg_row["initial_net_g"],
+            "tare": tare,
+        }
+
+        points: List[Tuple[datetime, float]] = []
+
+        if pkg_row["created_at"]:
+            try:
+                init_dt = parse_iso8601_z(pkg_row["created_at"])
+                if pkg_row["initial_gross_g"] is not None:
+                    points.append((init_dt, pkg_row["initial_gross_g"]))
+            except Exception:
+                pass
+
+        for wi in weighins_by_pkg.get(pkg_id, []):
+            try:
+                wi_dt = parse_iso8601_z(wi["timestamp"])
+                points.append((wi_dt, wi["gross_g"]))
+            except Exception:
+                continue
+
+        points.sort(key=lambda x: x[0])
+        pkg_points[pkg_id] = points
+
+    if not pkg_points:
+        print("No data to export")
+        return 0
+
+    # Find global date range (date-only, midnight)
+    all_dates: List[datetime] = []
+    for points in pkg_points.values():
+        for dt, _ in points:
+            all_dates.append(dt.replace(hour=0, minute=0, second=0, microsecond=0))
+
+    global_start = min(all_dates)
+    global_end = max(all_dates)
+
+    # Generate rows
+    total_rows = 0
+    with output_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+
+        current_date = global_start
+        while current_date <= global_end:
+            date_str = current_date.strftime("%Y-%m-%d")
+
+            for pkg_id, points in pkg_points.items():
+                info = pkg_info[pkg_id]
+                initial_net = info["initial_net"]
+
+                # Find the interval this date falls in
+                # points[i] to points[i+1]
+                interval_idx = None
+                for i in range(len(points) - 1):
+                    start_dt = points[i][0].replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    end_dt = points[i + 1][0].replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    if start_dt <= current_date <= end_dt:
+                        interval_idx = i
+                        break
+
+                # If the date is before the first point or after the last, skip
+                if interval_idx is None:
+                    # Check if current_date matches the last point exactly
+                    last_dt = points[-1][0].replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    if current_date == last_dt and len(points) >= 2:
+                        # Use the last interval's rate
+                        interval_idx = len(points) - 2
+                    else:
+                        continue
+
+                # Get the interval endpoints
+                start_dt_full, gross_start = points[interval_idx]
+                end_dt_full, gross_end = points[interval_idx + 1]
+
+                # Calculate daily usage rate for this interval
+                days_diff = (end_dt_full - start_dt_full).total_seconds() / 86400.0
+                daily_usage = (
+                    round((gross_start - gross_end) / days_diff, 4)
+                    if days_diff > 0
+                    else 0.0
+                )
+
+                # Interpolate gross weight for this date
+                start_date = start_dt_full.replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                days_into = (current_date - start_date).total_seconds() / 86400.0
+                estimated_gross = round(gross_start - daily_usage * days_into, 3)
+
+                estimated_net_clip = net_from_gross(estimated_gross, info["tare"])
+                estimated_net_unclip = (
+                    net_from_gross_unclipped(estimated_gross, info["tare"])
+                    if info["tare"] is not None
+                    else estimated_gross
+                )
+
+                cumulative = (
+                    round(initial_net - estimated_net_unclip, 4)
+                    if initial_net is not None
+                    else None
+                )
+
+                writer.writerow({
+                    "date": date_str,
+                    "package_id": pkg_id,
+                    "package_name": info["name"],
+                    "form": info["form"],
+                    "gross_g": estimated_gross,
+                    "net_g": round(estimated_net_clip, 4),
+                    "net_g_unclipped": round(estimated_net_unclip, 4),
+                    "daily_usage_g": daily_usage,
+                    "cumulative_consumed_g": cumulative,
+                    "thc_percent": info["thc_percent"],
+                    "cbd_percent": info["cbd_percent"],
+                    "note": "interpolated",
+                })
+                total_rows += 1
+
+            current_date += timedelta(days=1)
+
+    print(
+        f"Exported {total_rows} interpolated rows for "
+        f"{len(packages_rows)} packages to {output_path}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Medical cannabis logistics CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1427,6 +1763,13 @@ def build_parser() -> argparse.ArgumentParser:
     ph.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     ph.add_argument("--base", default=None, help="Base DB path")
     ph.set_defaults(func=cmd_history)
+
+    # export
+    px = sub.add_parser("export", help="Export historical usage data to CSV for charting")
+    px.add_argument("--output", default="usage_export.csv", help="Output CSV file path (default: usage_export.csv)")
+    px.add_argument("--interpolate", action="store_true", help="Fill in every calendar day between weigh-ins, carrying forward usage rates")
+    px.add_argument("--base", default=None, help="Base DB path")
+    px.set_defaults(func=cmd_export)
 
     return p
 
