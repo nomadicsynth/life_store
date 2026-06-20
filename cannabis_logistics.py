@@ -868,18 +868,16 @@ def cmd_usage(args: argparse.Namespace) -> int:
     # Build per-package usage data
     rows: List[Dict[str, Any]] = []
     usage_total = 0.0  # grams per day (g/day)
-    thc_total = 0.0  # grams per day (g/day), but print in mg/day for readability
-    cbd_total = 0.0  # grams per day (g/day), but print in mg/day for readability
+    thc_total = 0.0  # milligrams per day (mg/day)
+    cbd_total = 0.0  # milligrams per day (mg/day)
 
     for meta in packages:
         if meta.finished:
             continue
         rate = usage_rate_g_per_day(meta, list_weighins(db_path, meta.id)) or 0.0
         usage_total += rate
-        thc_pc = (meta.thc_percent or 0.0) / 100
-        cbd_pc = (meta.cbd_percent or 0.0) / 100
-        thc_rate = thc_pc * rate
-        cbd_rate = cbd_pc * rate
+        thc_rate = (meta.thc_percent or 0.0) / 100 * rate * 1000
+        cbd_rate = (meta.cbd_percent or 0.0) / 100 * rate * 1000
         thc_total += thc_rate
         cbd_total += cbd_rate
         rows.append({
@@ -888,14 +886,14 @@ def cmd_usage(args: argparse.Namespace) -> int:
             "thc_percent": meta.thc_percent or 0.0,
             "cbd_percent": meta.cbd_percent or 0.0,
             "usage_g_per_day": round(rate, 4),
-            "thc_mg_per_day": round(thc_rate * 1000, 2),
-            "cbd_mg_per_day": round(cbd_rate * 1000, 2),
+            "thc_mg_per_day": round(thc_rate, 2),
+            "cbd_mg_per_day": round(cbd_rate, 2),
         })
 
     totals: Dict[str, Any] = {
         "usage_g_per_day": round(usage_total, 4),
-        "thc_mg_per_day": round(thc_total * 1000, 2),
-        "cbd_mg_per_day": round(cbd_total * 1000, 2),
+        "thc_mg_per_day": round(thc_total, 2),
+        "cbd_mg_per_day": round(cbd_total, 2),
     }
 
     if args.json:
