@@ -8,4 +8,5 @@ data/
 .env
 .pytest_cache/
 .vscode/
-usage_export.csv
+*.csv
+*.ods
