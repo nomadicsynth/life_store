@@ -20,6 +20,7 @@ import math
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from tabulate import tabulate, SEPARATING_LINE
 from statistics import median
 from typing import List, Optional, Tuple, Dict, Any
 
@@ -858,36 +859,62 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_usage(args: argparse.Namespace) -> int:
     db_path = db_path_from_env_or_arg(args.base)
-    rows: List[Dict[str, Any]] = []
-    for meta in iter_packages(db_path):
-        data = forecast(meta, list_weighins(db_path, meta.id))
-        # enrich
-        data["name"] = meta.name
-        data["form"] = meta.form
-        rows.append(data)
+    packages = iter_packages(db_path)
 
-    if not rows:
+    if not packages:
         print("No packages found.")
         return 0
 
-    print("Active packages current usage (g/day):")
-    usage_total = 0.0
-    thc_total = 0.0
-    cbd_total = 0.0
-    for r in rows:
-        if r.get("finished"):
-            continue
-        daily_grams = float(r['usage_g_per_day'])
-        usage_total += daily_grams
-        thc_pc = (r['thc_percent'] or 0.0) / 100
-        cbd_pc = (r['cbd_percent'] or 0.0) / 100
-        thc_total += thc_pc * daily_grams
-        cbd_total += cbd_pc * daily_grams
-        print(f"- {r['package_id']} thc {thc_pc:.0%} cbd {cbd_pc:.0%}: {daily_grams:.4f}")
+    # Build per-package usage data
+    rows: List[Dict[str, Any]] = []
+    usage_total = 0.0  # grams per day (g/day)
+    thc_total = 0.0  # grams per day (g/day), but print in mg/day for readability
+    cbd_total = 0.0  # grams per day (g/day), but print in mg/day for readability
 
-    print(f"\nCurrent usage: {usage_total:.4f} g/day")
-    print(f"THC: {thc_total*1000:.2f} mg/day")
-    print(f"CBD: {cbd_total*1000:.2f} mg/day")
+    for meta in packages:
+        if meta.finished:
+            continue
+        rate = usage_rate_g_per_day(meta, list_weighins(db_path, meta.id)) or 0.0
+        usage_total += rate
+        thc_pc = (meta.thc_percent or 0.0) / 100
+        cbd_pc = (meta.cbd_percent or 0.0) / 100
+        thc_rate = thc_pc * rate
+        cbd_rate = cbd_pc * rate
+        thc_total += thc_rate
+        cbd_total += cbd_rate
+        rows.append({
+            "package_id": meta.id,
+            "name": meta.name,
+            "thc_percent": meta.thc_percent or 0.0,
+            "cbd_percent": meta.cbd_percent or 0.0,
+            "usage_g_per_day": round(rate, 4),
+            "thc_mg_per_day": round(thc_rate * 1000, 2),
+            "cbd_mg_per_day": round(cbd_rate * 1000, 2),
+        })
+
+    totals: Dict[str, Any] = {
+        "usage_g_per_day": round(usage_total, 4),
+        "thc_mg_per_day": round(thc_total * 1000, 2),
+        "cbd_mg_per_day": round(cbd_total * 1000, 2),
+    }
+
+    if args.json:
+        print(json.dumps({"packages": rows, "totals": totals}, indent=2))
+        return 0
+
+    # Tabular output
+    headers = ["Package", "THC %", "CBD %", "g/day", "THC mg/day", "CBD mg/day"]
+    table_rows = [
+        [r["name"], r["thc_percent"], r["cbd_percent"], r["usage_g_per_day"],
+         r["thc_mg_per_day"], r["cbd_mg_per_day"]]
+        for r in rows
+    ]
+    table_rows.append(SEPARATING_LINE)
+    table_rows.append([f"TOTAL", "", "", totals["usage_g_per_day"], totals["thc_mg_per_day"], totals["cbd_mg_per_day"]])
+
+    todays_date_str = now_utc().strftime("%Y-%m-%d")
+    print(f"Active packages usage (as at {todays_date_str}):")
+    print(tabulate(table_rows, headers=headers, tablefmt="simple"))
     return 0
 
 
@@ -1350,6 +1377,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # usage
     pu = sub.add_parser("usage", help="Show current usage")
+    pu.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     pu.add_argument("--base", default=None, help="Base DB path")
     pu.set_defaults(func=cmd_usage)
 
