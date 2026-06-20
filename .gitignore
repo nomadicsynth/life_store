@@ -7,3 +7,4 @@ data/
 *.db
 .env
 .pytest_cache/
+.vscode/
