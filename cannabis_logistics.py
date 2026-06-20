@@ -849,11 +849,23 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("No packages found.")
         return 0
 
-    for r in rows:
-        if r.get("finished") and not args.show_finished:
-            continue
+    # Filter finished packages
+    filtered = [r for r in rows if not r.get("finished") or args.show_finished]
+
+    headers = ["Package", "Name", "Form", "Net (g)", "Usage (g/day)", "Status"]
+    table_rows = []
+    for r in filtered:
         status = "FINISHED" if r.get("finished") else ("REORDER" if r.get("reorder_now") else "OK")
-        print(f"- {r['package_id']}: {r['name']} [{r['form']}] | net {r['current_net_g']} g | usage {r['usage_g_per_day']} g/day | {status}")
+        table_rows.append([
+            r["package_id"],
+            r["name"],
+            r["form"],
+            r["current_net_g"],
+            r["usage_g_per_day"],
+            status,
+        ])
+
+    print(tabulate(table_rows, headers=headers, tablefmt="simple"))
     return 0
 
 
