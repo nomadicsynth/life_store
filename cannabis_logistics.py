@@ -910,7 +910,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
         for r in rows
     ]
     table_rows.append(SEPARATING_LINE)
-    table_rows.append([f"TOTAL", "", "", totals["usage_g_per_day"], totals["thc_mg_per_day"], totals["cbd_mg_per_day"]])
+    table_rows.append(["TOTAL", "", "", totals["usage_g_per_day"], totals["thc_mg_per_day"], totals["cbd_mg_per_day"]])
 
     todays_date_str = now_utc().strftime("%Y-%m-%d")
     print(f"Active packages usage (as at {todays_date_str}):")
