@@ -355,10 +355,11 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
     return meta
 
 
-def iter_packages(db_path: Path) -> List[PackageMeta]:
+def iter_packages(db_path: Path, exclude_finished: bool = True) -> List[PackageMeta]:
     conn = get_db_connection(db_path)
     conn.row_factory = sqlite3.Row  # Enable named column access
-    rows = conn.execute("SELECT * FROM packages ORDER BY created_at, id").fetchall()
+    where_clause = "WHERE finished NOT IN (1)" if exclude_finished else ""
+    rows = conn.execute(f"SELECT * FROM packages {where_clause} ORDER BY created_at, id").fetchall()
     packages = []
     for row in rows:
         meta = PackageMeta(
@@ -834,7 +835,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     db_path = db_path_from_env_or_arg(args.base)
     rows: List[Dict[str, Any]] = []
-    for meta in iter_packages(db_path):
+    for meta in iter_packages(db_path, exclude_finished=not args.show_finished):
         data = forecast(meta, list_weighins(db_path, meta.id))
         # enrich
         data["name"] = meta.name
@@ -849,12 +850,9 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("No packages found.")
         return 0
 
-    # Filter finished packages
-    filtered = [r for r in rows if not r.get("finished") or args.show_finished]
-
     headers = ["Package", "Name", "Form", "Net (g)", "Usage (g/day)", "Status"]
     table_rows = []
-    for r in filtered:
+    for r in rows:
         status = "FINISHED" if r.get("finished") else ("REORDER" if r.get("reorder_now") else "OK")
         table_rows.append([
             r["package_id"],
@@ -871,7 +869,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_usage(args: argparse.Namespace) -> int:
     db_path = db_path_from_env_or_arg(args.base)
-    packages = iter_packages(db_path)
+    packages = iter_packages(db_path, exclude_finished=True)
 
     if not packages:
         print("No packages found.")
@@ -884,8 +882,6 @@ def cmd_usage(args: argparse.Namespace) -> int:
     cbd_total = 0.0  # milligrams per day (mg/day)
 
     for meta in packages:
-        if meta.finished:
-            continue
         rate = usage_rate_g_per_day(meta, list_weighins(db_path, meta.id)) or 0.0
         usage_total += rate
         thc_rate = (meta.thc_percent or 0.0) / 100 * rate * 1000
@@ -940,29 +936,23 @@ def cmd_check(args: argparse.Namespace) -> int:
             return 1
         results.append(forecast(meta, list_weighins(db_path, args.id)))
     else:
-        for meta in iter_packages(db_path):
+        for meta in iter_packages(db_path, exclude_finished=True):
             results.append(forecast(meta, list_weighins(db_path, meta.id)))
 
-    any_reorder = any(r.get("reorder_now") for r in results if not r.get("finished"))
+    # Filter to only packages that need reordering (exclude finished packages)
+    reorder_results = [r for r in results if r.get("reorder_now")]
 
     if args.json:
-        if args.id:
-            print(json.dumps(results[0], indent=2))
-        else:
-            print(json.dumps(results, indent=2))
+        print(json.dumps(reorder_results, indent=2))
     else:
-        if not results:
-            print("No packages found.")
+        if not reorder_results:
+            print("No packages need reordering.")
         else:
-            for r in results:
-                if r.get("finished"):
-                    status = "FINISHED"
-                else:
-                    status = "REORDER" if r.get("reorder_now") else "OK"
-                print(f"{r['package_id']}: {status} (order by {r['order_by_date']})")
+            for r in reorder_results:
+                print(f"{r['package_id']}: REORDER (order by {r['order_by_date']})")
 
     # Exit code: 1 if any need reorder, else 0
-    return 1 if any_reorder else 0
+    return 1 if reorder_results else 0
 
 
 def cmd_finish(args: argparse.Namespace) -> int:
