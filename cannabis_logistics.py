@@ -899,7 +899,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
             "usage_g_per_day": round(rate, 4),
             "thc_mg_per_day": round(thc_rate, 2),
             "cbd_mg_per_day": round(cbd_rate, 2),
-            "cost_per_day": cost_per_day,
+            "cost_per_day": round(cost_per_day, 2) if cost_per_day is not None else None,
         })
 
     totals: Dict[str, Any] = {
