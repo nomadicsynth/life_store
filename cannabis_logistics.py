@@ -889,6 +889,8 @@ def cmd_usage(args: argparse.Namespace) -> int:
         cbd_rate = (meta.cbd_percent or 0.0) / 100 * rate * 1000
         thc_total += thc_rate
         cbd_total += cbd_rate
+        price_per_gram = (meta.package_cost / meta.initial_net_g) if meta.package_cost and meta.initial_net_g and meta.initial_net_g > 0 else None
+        cost_per_day = price_per_gram * rate if price_per_gram is not None else None
         rows.append({
             "package_id": meta.id,
             "name": meta.name,
@@ -897,12 +899,14 @@ def cmd_usage(args: argparse.Namespace) -> int:
             "usage_g_per_day": round(rate, 4),
             "thc_mg_per_day": round(thc_rate, 2),
             "cbd_mg_per_day": round(cbd_rate, 2),
+            "cost_per_day": cost_per_day,
         })
 
     totals: Dict[str, Any] = {
         "usage_g_per_day": round(usage_total, 4),
         "thc_mg_per_day": round(thc_total, 2),
         "cbd_mg_per_day": round(cbd_total, 2),
+        "cost_per_day": round(sum(r["cost_per_day"] for r in rows if r["cost_per_day"] is not None), 2),
     }
 
     if args.json:
@@ -910,14 +914,14 @@ def cmd_usage(args: argparse.Namespace) -> int:
         return 0
 
     # Tabular output
-    headers = ["Package", "THC %", "CBD %", "g/day", "THC mg/day", "CBD mg/day"]
+    headers = ["Package", "THC %", "CBD %", "g/day", "THC mg/day", "CBD mg/day", "Cost/day"]
     table_rows = [
         [r["name"], r["thc_percent"], r["cbd_percent"], r["usage_g_per_day"],
-         r["thc_mg_per_day"], r["cbd_mg_per_day"]]
+         r["thc_mg_per_day"], r["cbd_mg_per_day"], r["cost_per_day"]]
         for r in rows
     ]
     table_rows.append(SEPARATING_LINE)
-    table_rows.append(["TOTAL", "", "", totals["usage_g_per_day"], totals["thc_mg_per_day"], totals["cbd_mg_per_day"]])
+    table_rows.append(["TOTAL", "", "", totals["usage_g_per_day"], totals["thc_mg_per_day"], totals["cbd_mg_per_day"], totals["cost_per_day"]])
 
     todays_date_str = now_utc().strftime("%Y-%m-%d")
     print(f"Active packages usage (as at {todays_date_str}):")
