@@ -1226,46 +1226,25 @@ def cmd_edit(args: argparse.Namespace) -> int:
     updates = []
     values = []
 
-    if args.name is not None:
-        updates.append("name = ?")
-        values.append(args.name)
-    if args.form is not None:
-        updates.append("form = ?")
-        values.append(args.form)
-    if args.initial_net_g is not None:
-        updates.append("initial_net_g = ?")
-        values.append(args.initial_net_g)
-    if args.initial_gross_g is not None:
-        updates.append("initial_gross_g = ?")
-        values.append(args.initial_gross_g)
-    if args.transit_days is not None:
-        updates.append("transit_days = ?")
-        values.append(args.transit_days)
-    if args.dispensary_processing_days is not None:
-        updates.append("dispensary_processing_days = ?")
-        values.append(args.dispensary_processing_days)
-    if args.post_office_processing_days is not None:
-        updates.append("post_office_processing_days = ?")
-        values.append(args.post_office_processing_days)
-    if args.safety_stock_days is not None:
-        updates.append("safety_stock_days = ?")
-        values.append(args.safety_stock_days)
+    EDITABLE_FIELDS = [
+        "name", "form", "initial_net_g", "initial_gross_g",
+        "transit_days", "dispensary_processing_days", "post_office_processing_days",
+        "safety_stock_days", "thc_percent", "cbd_percent", "package_cost",
+    ]
+    
+    for field in EDITABLE_FIELDS:
+        val = getattr(args, field, None)
+        if val is not None:
+            updates.append(f"{field} = ?")
+            values.append(val)
+    
+    # Handle booleans separately (need int() cast)
     if args.skip_weekends is not None:
         updates.append("skip_weekends = ?")
         values.append(int(args.skip_weekends))
-    if args.thc_percent is not None:
-        updates.append("thc_percent = ?")
-        values.append(args.thc_percent)
-    if args.cbd_percent is not None:
-        updates.append("cbd_percent = ?")
-        values.append(args.cbd_percent)
-    if args.package_cost is not None:
-        updates.append("package_cost = ?")
-        values.append(args.package_cost)
     if args.finished is not None:
         updates.append("finished = ?")
         values.append(int(args.finished))
-        # If marking as not finished, clear discrepancy (it's only valid when finished)
         if not args.finished:
             updates.append("weight_discrepancy_g = ?")
             values.append(None)
