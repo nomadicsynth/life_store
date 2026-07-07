@@ -548,21 +548,7 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
         "cbd_percent": meta.cbd_percent,
     }
 
-    if meta.finished:
-        result.update(
-            {
-                "estimated_depletion_date": None,
-                "required_pickup_date": None,
-                "required_post_office_arrival_date": None,
-                "courier_pickup_date": None,
-                "order_by_date": None,
-                "order_in_days": None,
-                "reorder_now": False,
-            }
-        )
-        return result
-
-    if rate is None or rate <= 0:
+    if meta.finished or rate is None or rate <= 0:
         result.update(
             {
                 "estimated_depletion_date": None,
