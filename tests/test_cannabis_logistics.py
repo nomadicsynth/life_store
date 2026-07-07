@@ -62,18 +62,7 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
     assert rc == 0
 
     # report JSON
-    out_path = base_db.parent / "out.json"
-    class Capturer:
-        def __init__(self):
-            self.lines = []
-        def write(self, s):
-            self.lines.append(s)
-        def flush(self):
-            pass
     cap = Capturer()
-
-    # monkeypatch stdout to capture
-    import sys
     old_stdout = sys.stdout
     sys.stdout = cap
     try:
@@ -106,16 +95,12 @@ def test_report_handles_no_usage(tmp_path: Path):
     assert rc == 0
 
     # report should not crash and usage None
-    class Capturer:
-        def __init__(self): self.lines = []
-        def write(self, s): self.lines.append(s)
-        def flush(self): pass
-    import sys
+    cap = Capturer()
     old_stdout = sys.stdout
-    sys.stdout = Capturer()
+    sys.stdout = cap
     try:
         rc = cli.main(["report", "--id", "empty", "--json", "--base", str(base_db)])
-        out = json.loads("".join(sys.stdout.lines))
+        out = json.loads("".join(cap.lines))
     finally:
         sys.stdout = old_stdout
     assert rc == 0
@@ -154,16 +139,12 @@ def test_list_and_check_commands(tmp_path: Path):
     assert cli.main(["weigh", "--id", "B", "--gross-g", "11.0", "--timestamp", iso(t4), "--base", str(base_db)]) == 0  # net 1g
 
     # list JSON
-    class Capturer:
-        def __init__(self): self.lines = []
-        def write(self, s): self.lines.append(s)
-        def flush(self): pass
-    import sys
+    cap = Capturer()
     old_stdout = sys.stdout
-    sys.stdout = Capturer()
+    sys.stdout = cap
     try:
         rc = cli.main(["list", "--json", "--base", str(base_db)])
-        out = json.loads("".join(sys.stdout.lines))
+        out = json.loads("".join(cap.lines))
     finally:
         sys.stdout = old_stdout
     assert rc == 0
@@ -180,10 +161,11 @@ def test_list_and_check_commands(tmp_path: Path):
     assert rc in (0, 1)  # allow either depending on timing, but ensure JSON reflects same
 
     # check single B JSON -> reorder_now True
-    sys.stdout = Capturer()
+    cap_b = Capturer()
+    sys.stdout = cap_b
     try:
         rc_b = cli.main(["check", "--id", "B", "--json", "--base", str(base_db)])
-        out_b = json.loads("".join(sys.stdout.lines))
+        out_b = json.loads("".join(cap_b.lines))
     finally:
         sys.stdout = old_stdout
     assert rc_b == 1
@@ -233,11 +215,6 @@ def test_init_with_created_at(tmp_path: Path):
     assert rc == 0
     
     # report JSON to check created_at is used
-    class Capturer:
-        def __init__(self): self.lines = []
-        def write(self, s): self.lines.append(s)
-        def flush(self): pass
-    import sys
     cap = Capturer()
     old_stdout = sys.stdout
     sys.stdout = cap
