@@ -349,7 +349,7 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
 def iter_packages(db_path: Path, exclude_finished: bool = True) -> List[PackageMeta]:
     conn = get_db_connection(db_path)
     conn.row_factory = sqlite3.Row  # Enable named column access
-    where_clause = "WHERE finished NOT IN (1)" if exclude_finished else ""
+    where_clause = "WHERE finished != 1" if exclude_finished else ""
     rows = conn.execute(f"SELECT * FROM packages {where_clause} ORDER BY created_at, id").fetchall()
     packages = []
     for row in rows:
