@@ -32,6 +32,7 @@ load_dotenv()
 # ---------------- Database schema ----------------
 SCHEMA_VERSION = 5  # Incremented when schema changes
 
+
 def get_schema_version(conn: sqlite3.Connection) -> int:
     """Get current schema version from database."""
     try:
@@ -42,12 +43,14 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
         # Table doesn't exist yet
         return 0
 
+
 def set_schema_version(conn: sqlite3.Connection, version: int) -> None:
     """Set schema version in database."""
     conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, updated_at TEXT NOT NULL)")
     conn.execute("INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (?, ?)", 
                  (version, to_iso_z(now_utc())))
     conn.commit()
+
 
 def backup_database(db_path: Path) -> Path:
     """Create a backup of the database using SQLite's backup API. Returns path to backup."""
@@ -57,20 +60,21 @@ def backup_database(db_path: Path) -> Path:
     # Use SQLite's backup API for a consistent snapshot
     source_conn = sqlite3.connect(str(db_path))
     backup_conn = sqlite3.connect(str(backup_path))
-    
+
     with backup_conn:
         source_conn.backup(backup_conn)
-    
+
     backup_conn.close()
     source_conn.close()
-    
+
     return backup_path
+
 
 def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
     """Run database migrations from current_version to SCHEMA_VERSION."""
     if current_version >= SCHEMA_VERSION:
         return  # No migration needed
-    
+
     if current_version < 1:
         # Version 0 -> 1: Add finished column
         # Check if column exists first to avoid overwriting data
@@ -83,7 +87,7 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
         # Version 1 -> 2: Migrate from lead_time_days to new transit/processing columns
         cursor = conn.execute("PRAGMA table_info(packages)")
         columns = [row[1] for row in cursor.fetchall()]
-        
+
         if "transit_days" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN transit_days INTEGER DEFAULT 2")
         if "dispensary_processing_days" not in columns:
@@ -103,7 +107,7 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
                     post_office_processing_days = COALESCE(post_office_processing_days, 1)
                 WHERE transit_days IS NULL OR transit_days = 0
             """)
-    
+
     if current_version < 3:
         # Version 2 -> 3: Add package_cost, reordered, reordered_date, and finished_date columns
         cursor = conn.execute("PRAGMA table_info(packages)")
@@ -123,7 +127,7 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
         columns = [row[1] for row in cursor.fetchall()]
         if "lead_time_days" in columns:
             conn.execute("ALTER TABLE packages DROP COLUMN lead_time_days")
-    
+
     if current_version < 5:
         # Version 4 -> 5: Add weight_discrepancy_g column to track discrepancy when package is finished
         cursor = conn.execute("PRAGMA table_info(packages)")
@@ -143,7 +147,7 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
                 FROM packages 
                 WHERE finished = 1
             """).fetchall()
-            
+
             for pkg_id, initial_net_g, initial_gross_g in finished_packages:
                 # Get the latest weigh-in for this package
                 latest_weighin = conn.execute("""
@@ -153,7 +157,7 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
                     ORDER BY timestamp DESC 
                     LIMIT 1
                 """, (pkg_id,)).fetchone()
-                
+
                 if latest_weighin:
                     # Calculate computed net weight from latest weigh-in
                     gross_g = latest_weighin[0]
@@ -167,17 +171,18 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
                 else:
                     # No weigh-ins, discrepancy = 0.0 to avoid biasing reports with incorrect values
                     discrepancy = 0.0
-                
+
                 # Update the package with the calculated discrepancy
                 conn.execute("""
                     UPDATE packages 
                     SET weight_discrepancy_g = ? 
                     WHERE id = ?
                 """, (discrepancy, pkg_id))
-    
+
     # Update to current schema version
     set_schema_version(conn, SCHEMA_VERSION)
     conn.commit()
+
 
 def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute("""
@@ -213,7 +218,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (package_id) REFERENCES packages(id)
         )
     """)
-    
+
     conn.commit()
 
 
@@ -287,14 +292,14 @@ def get_db_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db_exists = db_path.exists()
     conn = sqlite3.connect(str(db_path))
-    
+
     # Check if migration is needed
     current_version = get_schema_version(conn)
     needs_migration = current_version < SCHEMA_VERSION
-    
+
     # Create tables first (safe to run on existing DB)
     create_tables(conn)
-    
+
     # Run migrations if needed
     if needs_migration and db_exists:
         conn.close()
@@ -307,7 +312,7 @@ def get_db_connection(db_path: Path) -> sqlite3.Connection:
     elif needs_migration:
         # New database, just set version
         migrate_database(conn, current_version)
-    
+
     return conn
 
 
@@ -444,6 +449,7 @@ def net_from_gross(gross_g: float, tare_g: Optional[float]) -> float:
     if tare_g is None:
         return gross_g
     return max(gross_g - tare_g, 0.0)
+
 
 def net_from_gross_unclipped(gross_g: float, tare_g: Optional[float]) -> float:
     """Calculate net weight from gross without clipping. Use for discrepancy calculations."""
@@ -613,17 +619,17 @@ def forecast(meta: PackageMeta, weighins: List[WeighIn], as_of: Optional[datetim
 # ---------------- Budgeting module helper ----------------
 def get_all_forecasts(db_path: Optional[Path] = None, as_of: Optional[datetime] = None) -> List[Dict[str, Any]]:
     """Get forecasts for all packages. Intended for use by budgeting module.
-    
+
     Args:
         db_path: Path to database (defaults to standard path)
         as_of: Forecast 'as of' timestamp (defaults to now)
-    
+
     Returns:
         List of forecast dictionaries, one per package
     """
     if db_path is None:
         db_path = db_path_from_env_or_arg(None)
-    
+
     forecasts = []
     for meta in iter_packages(db_path):
         weighins = list_weighins(db_path, meta.id)
@@ -632,7 +638,7 @@ def get_all_forecasts(db_path: Optional[Path] = None, as_of: Optional[datetime] 
         data["name"] = meta.name
         data["form"] = meta.form
         forecasts.append(data)
-    
+
     return forecasts
 
 
@@ -660,9 +666,9 @@ def cmd_init(args: argparse.Namespace) -> int:
          post_office_processing_days, safety_stock_days, skip_weekends, thc_percent, cbd_percent, package_cost, created_at, finished, finished_date, reordered, reordered_date, weight_discrepancy_g)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
-        (args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g,
-         args.transit_days, args.dispensary_processing_days, args.post_office_processing_days,
-         args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, args.package_cost, created_at, 0, None, 0, None, None))
+                 (args.id, args.name, args.form, args.initial_net_g, args.initial_gross_g,
+                  args.transit_days, args.dispensary_processing_days, args.post_office_processing_days,
+                  args.safety_stock_days, int(args.skip_weekends), args.thc_percent, args.cbd_percent, args.package_cost, created_at, 0, None, 0, None, None))
     conn.commit()
     conn.close()
     print(f"Initialized package {args.id}")
@@ -691,7 +697,7 @@ def cmd_weigh(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    
+
     # Reject too-small decreases in gross weight; less than 0.1 grams is likely a repeated weigh-in. This is a heuristic to avoid accidental double entries.
     if prev_gross is not None and (prev_gross - args.gross_g) < 0.1:
         print(
@@ -784,7 +790,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             status_date = data.get("finished_date")
             status += f" on {status_date}"
     print(f"Status: {status}")
-    
+
     # Show weight discrepancy if package is finished
     if meta.finished and meta.weight_discrepancy_g is not None:
         print(f"Weight discrepancy: {meta.weight_discrepancy_g:.2f}g")
@@ -1013,11 +1019,11 @@ def cmd_history(args: argparse.Namespace) -> int:
 
     weighins = list_weighins(db_path, args.id)
     tare = get_tare(meta)
-    
+
     # Build history data points including initial state
     history_points: List[Dict[str, Any]] = []
     discrepancies: List[str] = []
-    
+
     # Add initial state
     if meta.created_at:
         initial_net = meta.initial_net_g if meta.initial_net_g is not None else 0.0
@@ -1030,7 +1036,7 @@ def cmd_history(args: argparse.Namespace) -> int:
             "note": "initial state",
             "is_initial": True
         })
-    
+
     # Add all weigh-ins
     prev_gross: Optional[float] = meta.initial_gross_g
     prev_net: Optional[float] = meta.initial_net_g
@@ -1039,12 +1045,14 @@ def cmd_history(args: argparse.Namespace) -> int:
     for w in weighins:
         try:
             timestamp_dt = parse_iso8601_z(w.timestamp)
-            net = net_from_gross_unclipped(w.gross_g, tare)  # Use unclipped for analysis
-            net_clipped = net_from_gross(w.gross_g, tare)  # Clipped for display
+            # Use unclipped for analysis
+            net = net_from_gross_unclipped(w.gross_g, tare)
+            # Clipped for display
+            net_clipped = net_from_gross(w.gross_g, tare)
             usage = 0.0
 
-            notes:List[str] = []
-            
+            notes: List[str] = []
+
             if prev_gross is not None:
                 # Compute the usage based on gross weight
                 if prev_timestamp is not None:
@@ -1088,7 +1096,7 @@ def cmd_history(args: argparse.Namespace) -> int:
                 notes.append(f"gross <= zero")
 
             note_str = ", ".join(notes) if notes else w.note or ""
-            
+
             history_points.append({
                 "timestamp": w.timestamp,
                 "gross_g": w.gross_g,
@@ -1098,14 +1106,14 @@ def cmd_history(args: argparse.Namespace) -> int:
                 "note": note_str,
                 "is_initial": False
             })
-            
+
             prev_gross = w.gross_g
             prev_net = net
             prev_timestamp = timestamp_dt
         except Exception as e:
             discrepancies.append(f"⚠️  Error processing weigh-in at {w.timestamp}: {e}")
             continue
-    
+
     # Check final state if finished
     if meta.finished:
         if meta.weight_discrepancy_g is not None:
@@ -1122,7 +1130,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         if len(history_points[-1]["note"]) > 0:
             history_points[-1]["note"] += ", "
         history_points[-1]["note"] += f"marked finished"
-    
+
     # Check for missing weigh-ins (large gaps)
     if len(history_points) >= 2:
         for i in range(1, len(history_points)):
@@ -1141,7 +1149,7 @@ def cmd_history(args: argparse.Namespace) -> int:
                     history_points[i]["note"] += f"large gap"
             except Exception:
                 pass
-    
+
     # Build output
     output: Dict[str, Any] = {
         "package_id": meta.id,
@@ -1158,11 +1166,11 @@ def cmd_history(args: argparse.Namespace) -> int:
         "discrepancies": discrepancies,
         "total_weighins": len(weighins)
     }
-    
+
     if args.json:
         print(json.dumps(output, indent=2))
         return 0
-    
+
     # Human-friendly output
     print(f"Package History: {meta.id} ({meta.name})")
     print(f"Form: {meta.form}")
@@ -1175,21 +1183,22 @@ def cmd_history(args: argparse.Namespace) -> int:
     if tare is not None:
         print(f"Tare weight: {tare:.2f}g")
     print()
-    
+
     print("Weight History:")
     print("-" * 150)
     print(f"{'Timestamp':<20} {'Gross (g)':<12} {'Net Clipped':<12} {'Net Unclipped':<14} {'Δ Clipped':<12} {'Δ Unclipped':<13} {'Δ Diff':<10} {'Usage (g/day)':<14} {'Note':<20}")
     print("-" * 150)
-    
+
     prev_net_clipped: Optional[float] = None
     prev_net_unclipped: Optional[float] = None
     for i, point in enumerate(history_points):
         timestamp_str = point["timestamp"][:19].replace("T", " ")  # Format for display
         gross = point["gross_g"]
         net_clipped = point["net_g"]
-        net_unclipped = point.get("net_g_unclipped", net_clipped)  # Fallback to clipped if unclipped not available
+        # Fallback to clipped if unclipped not available
+        net_unclipped = point.get("net_g_unclipped", net_clipped)
         usage_g = point.get("usage_g", 0.0)
-        
+
         # Calculate changes
         if prev_net_clipped is not None and prev_net_unclipped is not None:
             delta_clipped = net_clipped - prev_net_clipped
@@ -1202,11 +1211,11 @@ def cmd_history(args: argparse.Namespace) -> int:
             delta_clipped_str = " 0.00"
             delta_unclipped_str = " 0.00"
             delta_diff_str = " 0.00"
-        
+
         note = point.get("note", "") or ""
-        
+
         print(f"{timestamp_str:<20} {gross:<12.2f} {net_clipped:<12.2f} {net_unclipped:<14.2f} {delta_clipped_str:<12} {delta_unclipped_str:<13} {delta_diff_str:<10} {usage_g:<14.2f} {note:<20}")
-        
+
         prev_net_clipped = net_clipped
         prev_net_unclipped = net_unclipped
 
@@ -1224,6 +1233,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         print("✓ No discrepancies detected in weight history.")
 
     return 0
+
 
 def cmd_edit(args: argparse.Namespace) -> int:
     db_path = db_path_from_env_or_arg(args.base)
@@ -1244,13 +1254,13 @@ def cmd_edit(args: argparse.Namespace) -> int:
         "transit_days", "dispensary_processing_days", "post_office_processing_days",
         "safety_stock_days", "thc_percent", "cbd_percent", "package_cost",
     ]
-    
+
     for field in EDITABLE_FIELDS:
         val = getattr(args, field, None)
         if val is not None:
             updates.append(f"{field} = ?")
             values.append(val)
-    
+
     # Handle booleans separately (need int() cast)
     if args.skip_weekends is not None:
         updates.append("skip_weekends = ?")
