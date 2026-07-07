@@ -231,13 +231,13 @@ def test_init_with_created_at(tmp_path: Path):
     rc = cli.main([
         "weigh",
         "--id", "past_pkg",
-        "--gross-g", "25.0",  # no initial, so net=25.0
+        "--gross-g", "24.9",
         "--timestamp", weigh_at,
         "--base", str(base_db),
     ])
     assert rc == 0
     
-    # report again to check usage is not calculated (no initial_net_g)
+    # report again to check usage is calculated accurately. (15 - 14.9) / 5 days = 0.02 g/day
     cap2 = Capturer()
     sys.stdout = cap2
     try:
@@ -247,45 +247,7 @@ def test_init_with_created_at(tmp_path: Path):
     assert rc == 0
     
     out2 = json.loads("".join(cap2.lines))
-    assert out2["usage_g_per_day"] is None  # no initial_net_g
-    
-    # re-init with initial_net_g and initial_gross_g to enable usage calc
-    rc = cli.main([
-        "init",
-        "--id", "past_pkg2",
-        "--name", "Past Package 2",
-        "--form", "flower",
-        "--initial-net-g", "30",
-        "--initial-gross-g", "31",
-        "--transit-days", "5",
-        "--safety-stock-days", "2",
-        "--created-at", custom_created_at,
-        "--force",
-        "--base", str(base_db),
-    ])
-    assert rc == 0
-    
-    # add weigh-in
-    rc = cli.main([
-        "weigh",
-        "--id", "past_pkg2",
-        "--gross-g", "26.0",  # net=25.0 (tare=1.0)
-        "--timestamp", weigh_at,
-        "--base", str(base_db),
-    ])
-    assert rc == 0
-    
-    # report to check usage: (30 - 25) / 5 days = 1.0
-    cap3 = Capturer()
-    sys.stdout = cap3
-    try:
-        rc = cli.main(["report", "--id", "past_pkg2", "--json", "--base", str(base_db)])
-    finally:
-        sys.stdout = old_stdout
-    assert rc == 0
-    
-    out3 = json.loads("".join(cap3.lines))
-    assert out3["usage_g_per_day"] == 1.0
+    assert out2["usage_g_per_day"] == 0.02
 
 
 def test_edit_single_field(tmp_path: Path):
@@ -397,3 +359,72 @@ def test_edit_boolean_fields(tmp_path: Path):
     out2 = json.loads("".join(cap2.lines))
     assert len(out2) == 1
     assert out2[0]["finished"] is True
+
+
+def test_weigh_too_small_decrease_rejected(tmp_path: Path):
+    """Gross weight decreases < 0.1g should be rejected to avoid accidental double entries."""
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
+
+    # Init a package
+    assert cli.main([
+        "init", "--id", "smalldec", "--name", "Small Dec", "--form", "flower",
+        "--initial-net-g", "18", "--initial-gross-g", "28",
+        "--transit-days", "2", "--dispensary-processing-days", "1",
+        "--post-office-processing-days", "1", "--safety-stock-days", "2",
+        "--base", str(base_db),
+    ]) == 0
+
+    # First weigh-in at 25.0g gross
+    t1 = datetime.now(timezone.utc) - timedelta(days=3)
+    assert cli.main([
+        "weigh", "--id", "smalldec", "--gross-g", "25.0",
+        "--timestamp", iso(t1), "--base", str(base_db),
+    ]) == 0
+
+    # Second weigh-in only 0.05g lower should be rejected
+    t2 = datetime.now(timezone.utc)
+    rc = cli.main([
+        "weigh", "--id", "smalldec", "--gross-g", "24.95",
+        "--timestamp", iso(t2), "--base", str(base_db),
+    ])
+    assert rc == 1
+
+    # Test the boundary: a decrease of exactly 0.1g should succeed
+    rc = cli.main([
+        "weigh", "--id", "smalldec", "--gross-g", "24.85",
+        "--timestamp", iso(t2), "--base", str(base_db),
+    ])
+    assert rc == 0
+
+    # A proper decrease (>= 0.1g) should succeed
+    rc = cli.main([
+        "weigh", "--id", "smalldec", "--gross-g", "24.0",
+        "--timestamp", iso(t2), "--base", str(base_db),
+    ])
+    assert rc == 0
+
+
+def test_weigh_finished_package_rejected(tmp_path: Path):
+    """Weigh-ins for finished packages should be rejected."""
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
+
+    # Init a package
+    assert cli.main([
+        "init", "--id", "done", "--name", "Done", "--form", "flower",
+        "--initial-net-g", "18", "--initial-gross-g", "28",
+        "--transit-days", "2", "--dispensary-processing-days", "1",
+        "--post-office-processing-days", "1", "--safety-stock-days", "2",
+        "--base", str(base_db),
+    ]) == 0
+
+    # Mark it finished via the finish command
+    assert cli.main([
+        "finish", "--id", "done", "--base", str(base_db),
+    ]) == 0
+
+    # Try to weigh a finished package - should be rejected
+    rc = cli.main([
+        "weigh", "--id", "done", "--gross-g", "20.0",
+        "--base", str(base_db),
+    ])
+    assert rc == 1

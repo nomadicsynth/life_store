@@ -691,6 +691,19 @@ def cmd_weigh(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    
+    # Reject too-small decreases in gross weight; less than 0.1 grams is likely a repeated weigh-in. This is a heuristic to avoid accidental double entries.
+    if prev_gross is not None and (prev_gross - args.gross_g) < 0.1:
+        print(
+            f"Error: gross decreased by less than 0.1g ({prev_gross:.2f}g -> {args.gross_g:.2f}g) at or before {to_iso_z(ts)}; rejecting entry.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Reject weigh-ins for finished packages
+    if meta.finished:
+        print(f"Error: package {args.id} is finished; cannot record additional weigh-ins.", file=sys.stderr)
+        return 1
 
     conn = get_db_connection(db_path)
     conn.execute("INSERT INTO weighins (package_id, timestamp, gross_g, note) VALUES (?, ?, ?, ?)", (args.id, to_iso_z(ts), args.gross_g, args.note))
