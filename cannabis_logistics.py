@@ -157,7 +157,10 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
                 if latest_weighin:
                     # Calculate computed net weight from latest weigh-in
                     gross_g = latest_weighin[0]
-                    tare = initial_gross_g - initial_net_g if (initial_gross_g is not None and initial_net_g is not None) else None
+                    tare = get_tare(PackageMeta(
+                        initial_gross_g=initial_gross_g,
+                        initial_net_g=initial_net_g
+                    ))
                     computed_net = gross_g - tare if tare is not None else gross_g
                     # Discrepancy = computed_net
                     discrepancy = computed_net
