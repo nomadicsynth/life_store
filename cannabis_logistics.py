@@ -941,7 +941,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         for meta in iter_packages(db_path, exclude_finished=True):
             results.append(forecast(meta, list_weighins(db_path, meta.id)))
 
-    # Filter to only packages that need reordering (exclude finished packages)
+    # Filter to only packages that need reordering
     reorder_results = [r for r in results if r.get("order_in_days") is not None and r["order_in_days"] <= args.next_x_days]
 
     if args.json:
@@ -1637,6 +1637,9 @@ def _export_interpolate(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Medical cannabis logistics CLI")
+
+    p.add_argument("--base", default=None, help="Base path for database (default: data/therapeutics/cannabis/cannabis_logistics.db)")
+
     sub = p.add_subparsers(dest="cmd", required=True)
 
     default_transit_days = int(os.environ.get('CANNABIS_TRANSIT_DAYS', 2))
@@ -1660,7 +1663,6 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--thc-percent", type=float, default=None, dest="thc_percent")
     pi.add_argument("--cbd-percent", type=float, default=None, dest="cbd_percent")
     pi.add_argument("--package-cost", type=float, default=None, dest="package_cost", help="Cost of the package (for budgeting)")
-    pi.add_argument("--base", default=None, help="Base DB path (default data/therapeutics/cannabis/cannabis_logistics.db)")
     pi.add_argument("--force", action="store_true", help="Overwrite existing package metadata")
     pi.add_argument("--created-at", default=None, help="ISO-8601 timestamp for package creation; default now UTC")
     pi.set_defaults(func=cmd_init)
@@ -1672,13 +1674,11 @@ def build_parser() -> argparse.ArgumentParser:
     pw.add_argument("--timestamp", default=None, help="ISO-8601 timestamp; default now UTC")
     pw.add_argument("--note", default=None, help="Optional note")
     pw.add_argument("--finished", action="store_true", help="Mark the package as finished after this weigh-in")
-    pw.add_argument("--base", default=None, help="Base DB path")
     pw.set_defaults(func=cmd_weigh)
 
     # unweigh
     pu = sub.add_parser("unweigh", help="Undo the last weigh-in for a package")
     pu.add_argument("--id", required=True, help="Package ID")
-    pu.add_argument("--base", default=None, help="Base DB path")
     pu.set_defaults(func=cmd_unweigh)
 
     # report
@@ -1686,34 +1686,29 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--id", required=True, help="Package ID")
     pr.add_argument("--as-of", default=None, help="Report 'as of' timestamp (ISO-8601)")
     pr.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
-    pr.add_argument("--base", default=None, help="Base DB path")
     pr.set_defaults(func=cmd_report)
 
     # list
     pl = sub.add_parser("list", help="List packages with current status")
     pl.add_argument("--show-finished", dest="show_finished", action="store_true", help="Show finished packages")
     pl.add_argument("--json", action="store_true", help="Emit machine-readable JSON array")
-    pl.add_argument("--base", default=None, help="Base DB path")
     pl.set_defaults(func=cmd_list)
 
     # usage
     pu = sub.add_parser("usage", help="Show current usage")
     pu.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
-    pu.add_argument("--base", default=None, help="Base DB path")
     pu.set_defaults(func=cmd_usage)
 
     # check
     pc = sub.add_parser("check", help="Check reorder status; non-zero exit if reorder needed")
     pc.add_argument("--id", help="Package ID (if omitted, checks all)")
-    pc.add_argument("--next-x-days", type=int, default=7, dest="next_x_days", help="Check if reorder is needed within the next X days (default: 7)")
+    pc.add_argument("--next-x-days", type=int, default=14, dest="next_x_days", help="Check if reorder is needed within the next X days (default: 14)")
     pc.add_argument("--json", action="store_true", help="Emit JSON (object for single, array for all)")
-    pc.add_argument("--base", default=None, help="Base DB path")
     pc.set_defaults(func=cmd_check)
 
     # finish
     pf = sub.add_parser("finish", help="Mark a package as finished")
     pf.add_argument("--id", required=True, help="Package ID")
-    pf.add_argument("--base", default=None, help="Base DB path")
     pf.set_defaults(func=cmd_finish)
 
     # edit
@@ -1733,28 +1728,24 @@ def build_parser() -> argparse.ArgumentParser:
     pe.add_argument("--package-cost", type=float, default=None, dest="package_cost", help="Cost of the package (for budgeting)")
     pe.add_argument("--finished", type=lambda x: x.lower() in ('true', '1', 'yes'), default=None, dest="finished", help="Mark package as finished (true/false)")
     pe.add_argument("--reordered", type=lambda x: x.lower() in ('true', '1', 'yes'), default=None, dest="reordered", help="Mark package as reordered (true/false)")
-    pe.add_argument("--base", default=None, help="Base DB path")
     pe.set_defaults(func=cmd_edit)
 
     # reorder
     prd = sub.add_parser("reorder", help="Mark a package as reordered")
     prd.add_argument("--id", required=True, help="Package ID")
     prd.add_argument("--reorder-date", default=None, help="ISO-8601 timestamp for reorder date. Defaults to now UTC.")
-    prd.add_argument("--base", default=None, help="Base DB path")
     prd.set_defaults(func=cmd_reorder)
 
     # history
     ph = sub.add_parser("history", help="Show full package history with weight analysis")
     ph.add_argument("--id", required=True, help="Package ID")
     ph.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
-    ph.add_argument("--base", default=None, help="Base DB path")
     ph.set_defaults(func=cmd_history)
 
     # export
     px = sub.add_parser("export", help="Export historical usage data to CSV for charting")
     px.add_argument("--output", default="usage_export.csv", help="Output CSV file path (default: usage_export.csv)")
     px.add_argument("--interpolate", action="store_true", help="Fill in every calendar day between weigh-ins, carrying forward usage rates")
-    px.add_argument("--base", default=None, help="Base DB path")
     px.set_defaults(func=cmd_export)
 
     return p
