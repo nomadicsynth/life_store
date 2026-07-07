@@ -33,7 +33,7 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
         "--form", "flower",
         "--initial-net-g", "18",
         "--initial-gross-g", "28",
-        "--lead-time-days", "5",
+        "--transit-days", "5",
         "--safety-stock-days", "2",
         "--base", str(base_db),
     ])
@@ -88,7 +88,7 @@ def test_report_handles_no_usage(tmp_path: Path):
         "--form", "flower",
         "--initial-net-g", "10",
         "--initial-gross-g", "20",
-        "--lead-time-days", "3",
+        "--transit-days", "3",
         "--safety-stock-days", "2",
         "--base", str(base_db),
     ])
@@ -114,7 +114,7 @@ def test_list_and_check_commands(tmp_path: Path):
     # Package A: has usage, likely not reorder yet
     rc = cli.main([
         "init", "--id", "A", "--name", "Pkg A", "--form", "flower",
-        "--initial-net-g", "18", "--initial-gross-g", "28", "--lead-time-days", "3", "--safety-stock-days", "2",
+        "--initial-net-g", "18", "--initial-gross-g", "28", "--transit-days", "3", "--safety-stock-days", "2",
         "--base", str(base_db),
     ])
     assert rc == 0
@@ -127,7 +127,7 @@ def test_list_and_check_commands(tmp_path: Path):
     # Package B: small remaining, force reorder
     rc = cli.main([
         "init", "--id", "B", "--name", "Pkg B", "--form", "flower",
-        "--initial-net-g", "8", "--initial-gross-g", "18", "--lead-time-days", "7", "--safety-stock-days", "3",
+        "--initial-net-g", "8", "--initial-gross-g", "18", "--transit-days", "7", "--safety-stock-days", "3",
         "--base", str(base_db),
     ])
     assert rc == 0
@@ -178,7 +178,7 @@ def test_weigh_increase_rejected(tmp_path: Path):
     # init with tare and initial
     assert cli.main([
         "init", "--id", "X", "--name", "Pkg X", "--form", "flower",
-        "--initial-net-g", "20", "--initial-gross-g", "30", "--lead-time-days", "3", "--safety-stock-days", "2",
+        "--initial-net-g", "20", "--initial-gross-g", "30", "--transit-days", "3", "--safety-stock-days", "2",
         "--base", str(base_db),
     ]) == 0
     # weigh at t1 net 18g
@@ -207,7 +207,7 @@ def test_init_with_created_at(tmp_path: Path):
         "--form", "flower",
         "--initial-net-g", "15",
         "--initial-gross-g", "25",
-        "--lead-time-days", "5",
+        "--transit-days", "5",
         "--safety-stock-days", "2",
         "--created-at", custom_created_at,
         "--base", str(base_db),
@@ -258,7 +258,7 @@ def test_init_with_created_at(tmp_path: Path):
         "--form", "flower",
         "--initial-net-g", "30",
         "--initial-gross-g", "31",
-        "--lead-time-days", "5",
+        "--transit-days", "5",
         "--safety-stock-days", "2",
         "--created-at", custom_created_at,
         "--force",
