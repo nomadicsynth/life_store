@@ -268,10 +268,8 @@ class WeighIn:
     note: Optional[str] = None
 
 
-def get_tare(meta: PackageMeta) -> Optional[float]:
-    if meta.initial_gross_g is not None and meta.initial_net_g is not None:
-        return meta.initial_gross_g - meta.initial_net_g
-    return None
+def get_tare(package: PackageMeta) -> Optional[float]:
+    return package.initial_gross_g - package.initial_net_g
 
 
 # ---------------- Core paths ----------------
