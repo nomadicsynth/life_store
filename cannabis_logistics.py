@@ -311,13 +311,8 @@ def get_db_connection(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
-    conn = get_db_connection(db_path)
-    conn.row_factory = sqlite3.Row  # Enable named column access
-    row = conn.execute("SELECT * FROM packages WHERE id = ?", (pkg_id,)).fetchone()
-    if not row:
-        raise FileNotFoundError(f"Package not found: {pkg_id}")
-    meta = PackageMeta(
+def row_to_package_meta(row: sqlite3.Row) -> PackageMeta:
+    return PackageMeta(
         id=row["id"],
         name=row["name"],
         form=row["form"],
@@ -336,8 +331,17 @@ def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
         finished_date=row["finished_date"] if "finished_date" in row.keys() and row["finished_date"] else None,
         reordered=bool(row["reordered"]) if "reordered" in row.keys() and row["reordered"] is not None else False,
         reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None,
-        weight_discrepancy_g=row["weight_discrepancy_g"] if "weight_discrepancy_g" in row.keys() and row["weight_discrepancy_g"] is not None else None
+        weight_discrepancy_g=row["weight_discrepancy_g"] if "weight_discrepancy_g" in row.keys() and row["weight_discrepancy_g"] is not None else None,
     )
+
+
+def load_package(db_path: Path, pkg_id: str) -> PackageMeta:
+    conn = get_db_connection(db_path)
+    conn.row_factory = sqlite3.Row  # Enable named column access
+    row = conn.execute("SELECT * FROM packages WHERE id = ?", (pkg_id,)).fetchone()
+    if not row:
+        raise FileNotFoundError(f"Package not found: {pkg_id}")
+    meta = row_to_package_meta(row)
     conn.close()
     return meta
 
@@ -349,27 +353,7 @@ def iter_packages(db_path: Path, exclude_finished: bool = True) -> List[PackageM
     rows = conn.execute(f"SELECT * FROM packages {where_clause} ORDER BY created_at, id").fetchall()
     packages = []
     for row in rows:
-        meta = PackageMeta(
-            id=row["id"],
-            name=row["name"],
-            form=row["form"],
-            initial_net_g=row["initial_net_g"],
-            initial_gross_g=row["initial_gross_g"],
-            transit_days=row["transit_days"] if row["transit_days"] is not None else 2,
-            dispensary_processing_days=row["dispensary_processing_days"] if row["dispensary_processing_days"] is not None else 1,
-            post_office_processing_days=row["post_office_processing_days"] if row["post_office_processing_days"] is not None else 1,
-            safety_stock_days=row["safety_stock_days"] if row["safety_stock_days"] is not None else 2,
-            skip_weekends=bool(row["skip_weekends"]) if row["skip_weekends"] is not None else True,
-            thc_percent=row["thc_percent"],
-            cbd_percent=row["cbd_percent"],
-            package_cost=row["package_cost"] if "package_cost" in row.keys() else None,
-            created_at=row["created_at"] if row["created_at"] else "",
-            finished=bool(row["finished"]) if "finished" in row.keys() and row["finished"] is not None else False,
-            finished_date=row["finished_date"] if "finished_date" in row.keys() and row["finished_date"] else None,
-            reordered=bool(row["reordered"]) if "reordered" in row.keys() and row["reordered"] is not None else False,
-            reordered_date=row["reordered_date"] if "reordered_date" in row.keys() and row["reordered_date"] else None,
-            weight_discrepancy_g=row["weight_discrepancy_g"] if "weight_discrepancy_g" in row.keys() and row["weight_discrepancy_g"] is not None else None
-        )
+        meta = row_to_package_meta(row)
         packages.append(meta)
     conn.close()
     return packages
