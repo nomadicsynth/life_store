@@ -835,13 +835,13 @@ def cmd_usage(args: argparse.Namespace) -> int:
     # Build per-package usage data
     rows: List[Dict[str, Any]] = []
 
-    for meta in packages:
-        rate = usage_rate_g_per_day(meta, list_weighins(db_path, meta.id)) or 0.0
+    def _build_usage_row(meta: PackageMeta, weighins: List[WeighIn]) -> Dict[str, Any]:
+        rate = usage_rate_g_per_day(meta, weighins) or 0.0
         thc_rate = (meta.thc_percent or 0.0) / 100 * rate * 1000
         cbd_rate = (meta.cbd_percent or 0.0) / 100 * rate * 1000
         price_per_gram = (meta.package_cost / meta.initial_net_g) if meta.package_cost and meta.initial_net_g and meta.initial_net_g > 0 else None
         cost_per_day = price_per_gram * rate if price_per_gram is not None else None
-        rows.append({
+        return {
             "package_id": meta.id,
             "name": meta.name,
             "thc_percent": meta.thc_percent or 0.0,
@@ -850,7 +850,10 @@ def cmd_usage(args: argparse.Namespace) -> int:
             "thc_mg_per_day": round(thc_rate, 2),
             "cbd_mg_per_day": round(cbd_rate, 2),
             "cost_per_day": round(cost_per_day, 2) if cost_per_day is not None else None,
-        })
+        }
+
+    for meta in packages:
+        rows.append(_build_usage_row(meta, list_weighins(db_path, meta.id)))
 
     # Replace zero-usage active packages with most-recently-finished packages
     zero_usage_indices = [i for i, r in enumerate(rows) if r["usage_g_per_day"] == 0.0]
@@ -865,21 +868,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
             rows.pop(idx)
 
         for meta in replacements:
-            rate = usage_rate_g_per_day(meta, list_weighins(db_path, meta.id)) or 0.0
-            thc_rate = (meta.thc_percent or 0.0) / 100 * rate * 1000
-            cbd_rate = (meta.cbd_percent or 0.0) / 100 * rate * 1000
-            price_per_gram = (meta.package_cost / meta.initial_net_g) if meta.package_cost and meta.initial_net_g and meta.initial_net_g > 0 else None
-            cost_per_day = price_per_gram * rate if price_per_gram is not None else None
-            rows.append({
-                "package_id": meta.id,
-                "name": meta.name,
-                "thc_percent": meta.thc_percent or 0.0,
-                "cbd_percent": meta.cbd_percent or 0.0,
-                "usage_g_per_day": round(rate, 4),
-                "thc_mg_per_day": round(thc_rate, 2),
-                "cbd_mg_per_day": round(cbd_rate, 2),
-                "cost_per_day": round(cost_per_day, 2) if cost_per_day is not None else None,
-            })
+            rows.append(_build_usage_row(meta, list_weighins(db_path, meta.id)))
 
     # Compute totals once from the final list
     totals: Dict[str, Any] = {
