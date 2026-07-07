@@ -169,8 +169,9 @@ def test_list_and_check_commands(tmp_path: Path):
     finally:
         sys.stdout = old_stdout
     assert rc_b == 1
-    assert out_b["package_id"] == "B"
-    assert out_b["reorder_now"] is True
+    assert isinstance(out_b, list) and len(out_b) == 1
+    assert out_b[0]["package_id"] == "B"
+    assert out_b[0]["reorder_now"] is True
 
 
 def test_weigh_increase_rejected(tmp_path: Path):
