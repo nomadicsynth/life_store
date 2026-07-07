@@ -945,14 +945,15 @@ def cmd_check(args: argparse.Namespace) -> int:
             results.append(forecast(meta, list_weighins(db_path, meta.id)))
 
     # Filter to only packages that need reordering (exclude finished packages)
-    reorder_results = [r for r in results if r.get("reorder_now")]
+    reorder_results = [r for r in results if r.get("order_in_days") is not None and r["order_in_days"] <= args.next_x_days]
 
     if args.json:
         print(json.dumps(reorder_results, indent=2))
     else:
         if not reorder_results:
-            print("No packages need reordering.")
+            print(f"No packages need reordering within the next {args.next_x_days} days.")
         else:
+            print(f"Packages needing reorder within the next {args.next_x_days} days:")
             for r in reorder_results:
                 print(f"{r['package_id']}: REORDER (order by {r['order_by_date']})")
 
@@ -1724,6 +1725,7 @@ def build_parser() -> argparse.ArgumentParser:
     # check
     pc = sub.add_parser("check", help="Check reorder status; non-zero exit if reorder needed")
     pc.add_argument("--id", help="Package ID (if omitted, checks all)")
+    pc.add_argument("--next-x-days", type=int, default=7, dest="next_x_days", help="Check if reorder is needed within the next X days (default: 7)")
     pc.add_argument("--json", action="store_true", help="Emit JSON (object for single, array for all)")
     pc.add_argument("--base", default=None, help="Base DB path")
     pc.set_defaults(func=cmd_check)
