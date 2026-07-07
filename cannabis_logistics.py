@@ -981,7 +981,7 @@ def cmd_reorder(args: argparse.Namespace) -> int:
     if args.reorder_date and not parse_iso8601_z(args.reorder_date):
         print(f"Invalid reorder-date: {args.reorder_date}", file=sys.stderr)
         return 1
-    reorder_date = args.reorder_date if args.reorder_date else to_iso_z(now_utc())
+    reorder_date = args.reorder_date or to_iso_z(now_utc())
     conn.execute("UPDATE packages SET reordered = 1, reordered_date = ? WHERE id = ?", (reorder_date, args.id))
     conn.commit()
     conn.close()
