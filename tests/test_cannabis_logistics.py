@@ -3,8 +3,6 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
-import pytest
-
 import cannabis_logistics as cli
 
 
