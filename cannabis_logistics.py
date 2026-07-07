@@ -135,10 +135,6 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
         if "weight_discrepancy_g" not in columns:
             conn.execute("ALTER TABLE packages ADD COLUMN weight_discrepancy_g REAL")
             
-            # Clear any discrepancy values for unfinished packages (safety check)
-            # TODO: not sure if this is needed. think it through and remove if redundant.
-            conn.execute("UPDATE packages SET weight_discrepancy_g = NULL WHERE finished = 0")
-            
             # Calculate discrepancy for existing finished packages
             # For each finished package, get the latest weigh-in and calculate net weight
             # Discrepancy = computed_net - actual (where actual is 0 when finished)
