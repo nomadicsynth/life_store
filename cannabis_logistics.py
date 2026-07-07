@@ -918,7 +918,7 @@ def cmd_usage(args: argparse.Namespace) -> int:
 
     todays_date_str = now_utc().strftime("%Y-%m-%d")
     print(f"Active packages usage (as at {todays_date_str}):\n")
-    print(tabulate(table_rows, headers=headers, tablefmt="simple"))
+    print(tabulate(table_rows, headers=headers, tablefmt="simple", floatfmt=[".2f", ".0f", ".0f", ".2f", ".0f", ".0f", ".2f"]))
     if len(notes) > 0:
         print("\nNotes:")
     for note in notes:
