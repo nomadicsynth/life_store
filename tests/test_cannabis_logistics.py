@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
@@ -9,6 +10,16 @@ import cannabis_logistics as cli
 
 def iso(dt):
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class Capturer:
+    """Capture stdout lines for JSON output verification."""
+    def __init__(self):
+        self.lines = []
+    def write(self, s):
+        self.lines.append(s)
+    def flush(self):
+        pass
 
 
 def test_init_weigh_report(tmp_path: Path, monkeypatch):
@@ -299,3 +310,114 @@ def test_init_with_created_at(tmp_path: Path):
     
     out3 = json.loads("".join(cap3.lines))
     assert out3["usage_g_per_day"] == 1.0
+
+
+def test_edit_single_field(tmp_path: Path):
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
+    # Init a package
+    assert cli.main([
+        "init", "--id", "editme", "--name", "Original", "--form", "flower",
+        "--initial-net-g", "18", "--initial-gross-g", "28",
+        "--transit-days", "2", "--dispensary-processing-days", "1",
+        "--post-office-processing-days", "1", "--safety-stock-days", "2",
+        "--base", str(base_db),
+    ]) == 0
+    # Edit just the name
+    rc = cli.main(["edit", "--id", "editme", "--name", "Renamed", "--base", str(base_db)])
+    assert rc == 0
+    # Verify via list JSON
+    cap = Capturer()
+    old = sys.stdout
+    sys.stdout = cap
+    try:
+        cli.main(["list", "--json", "--base", str(base_db)])
+    finally:
+        sys.stdout = old
+    out_list = json.loads("".join(cap.lines))
+    assert out_list[0]["package_id"] == "editme"
+    assert out_list[0]["name"] == "Renamed"
+
+
+def test_edit_multiple_fields(tmp_path: Path):
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
+    assert cli.main([
+        "init", "--id", "multi", "--name", "Multi", "--form", "flower",
+        "--initial-net-g", "18", "--initial-gross-g", "28",
+        "--transit-days", "2", "--dispensary-processing-days", "1",
+        "--post-office-processing-days", "1", "--safety-stock-days", "2",
+        "--base", str(base_db),
+    ]) == 0
+    # Edit several fields at once
+    rc = cli.main([
+        "edit", "--id", "multi",
+        "--name", "Changed", "--form", "oil",
+        "--transit-days", "5", "--safety-stock-days", "4",
+        "--thc-percent", "20.0", "--cbd-percent", "5.0",
+        "--package-cost", "150.0",
+        "--base", str(base_db),
+    ])
+    assert rc == 0
+    # Verify via list JSON
+    cap = Capturer()
+    old = sys.stdout
+    sys.stdout = cap
+    try:
+        cli.main(["list", "--json", "--base", str(base_db)])
+    finally:
+        sys.stdout = old
+    out = json.loads("".join(cap.lines))
+    assert out[0]["name"] == "Changed"
+    assert out[0]["form"] == "oil"
+
+
+def test_edit_no_fields_returns_error(tmp_path: Path):
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
+    assert cli.main([
+        "init", "--id", "none", "--name", "None", "--form", "flower",
+        "--initial-net-g", "18", "--initial-gross-g", "28",
+        "--transit-days", "2", "--dispensary-processing-days", "1",
+        "--post-office-processing-days", "1", "--safety-stock-days", "2",
+        "--base", str(base_db),
+    ]) == 0
+    rc = cli.main(["edit", "--id", "none", "--base", str(base_db)])
+    assert rc == 1
+
+
+def test_edit_nonexistent_package(tmp_path: Path):
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
+    rc = cli.main(["edit", "--id", "ghost", "--name", "Ghost", "--base", str(base_db)])
+    assert rc == 1
+
+
+def test_edit_boolean_fields(tmp_path: Path):
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
+    assert cli.main([
+        "init", "--id", "boolpkg", "--name", "Bool", "--form", "flower",
+        "--initial-net-g", "18", "--initial-gross-g", "28",
+        "--transit-days", "2", "--dispensary-processing-days", "1",
+        "--post-office-processing-days", "1", "--safety-stock-days", "2",
+        "--base", str(base_db),
+    ]) == 0
+    # Mark as finished via edit
+    rc = cli.main(["edit", "--id", "boolpkg", "--finished", "true", "--base", str(base_db)])
+    assert rc == 0
+    # Verify it's excluded from default list
+    cap = Capturer()
+    old = sys.stdout
+    sys.stdout = cap
+    try:
+        cli.main(["list", "--json", "--base", str(base_db)])
+    finally:
+        sys.stdout = old
+    out = json.loads("".join(cap.lines))
+    assert len(out) == 0  # finished packages excluded by default
+    # Verify it appears with --show-finished
+    cap2 = Capturer()
+    sys.stdout = cap2
+    try:
+        cli.main(["list", "--json", "--show-finished", "--base", str(base_db)])
+    finally:
+        sys.stdout = old
+    out2 = json.loads("".join(cap2.lines))
+    assert len(out2) == 1
+    assert out2[0]["finished"] is True
