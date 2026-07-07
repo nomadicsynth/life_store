@@ -851,6 +851,9 @@ def cmd_usage(args: argparse.Namespace) -> int:
         print("No packages found.")
         return 0
 
+    # Notes for any zero-usage packages and replacement finished packages
+    notes: List[str] = []
+
     # Build per-package usage data
     rows: List[Dict[str, Any]] = []
 
@@ -884,10 +887,12 @@ def cmd_usage(args: argparse.Namespace) -> int:
         replacements = finished[:n]
 
         for idx in zero_usage_indices:
-            rows.pop(idx)
+            removed_package = rows.pop(idx)
+            notes.append(f"Package '{removed_package['name']}' (ID: {removed_package['package_id']}) excluded - zero usage")
 
         for meta in replacements:
             rows.append(_build_usage_row(meta, list_weighins(db_path, meta.id)))
+            notes.append(f"Package '{meta.name}' (ID: {meta.id}) included - most recently finished package")
 
     # Compute totals once from the final list
     totals: Dict[str, Any] = {
@@ -912,8 +917,12 @@ def cmd_usage(args: argparse.Namespace) -> int:
     table_rows.append(["TOTAL", "", "", totals["usage_g_per_day"], totals["thc_mg_per_day"], totals["cbd_mg_per_day"], totals["cost_per_day"]])
 
     todays_date_str = now_utc().strftime("%Y-%m-%d")
-    print(f"Active packages usage (as at {todays_date_str}):")
-    print(tabulate(table_rows, headers=headers, tablefmt="simple"))
+    print(f"Active packages usage (as at {todays_date_str}):\n")
+    print(tabulate(table_rows, headers=headers, tablefmt="simple", floatfmt=[".2f", ".0f", ".0f", ".2f", ".0f", ".0f", ".2f"]))
+    if len(notes) > 0:
+        print("\nNotes:")
+    for note in notes:
+        print(note)
     return 0
 
 
