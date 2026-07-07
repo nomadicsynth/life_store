@@ -938,7 +938,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             results.append(forecast(meta, list_weighins(db_path, meta.id)))
 
     # Filter to only packages that need reordering
-    reorder_results = [r for r in results if r.get("order_in_days") is not None and r["order_in_days"] <= args.next_x_days]
+    reorder_results = [r for r in results if r.get("order_in_days") is not None and r["order_in_days"] <= args.next_x_days and not r.get("reordered")]
 
     if args.json:
         print(json.dumps(reorder_results, indent=2))
