@@ -23,7 +23,7 @@ class Capturer:
 
 
 def test_init_weigh_report(tmp_path: Path, monkeypatch):
-    base_db = tmp_path / "therapeutics" / "cannabis" / "cannabis_logistics.db"
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
 
     # init package
     rc = cli.main([
@@ -90,7 +90,7 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
 
 
 def test_report_handles_no_usage(tmp_path: Path):
-    base_db = tmp_path / "therapeutics" / "cannabis" / "cannabis_logistics.db"
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     # init only, no weigh-ins
     rc = cli.main([
         "init",
@@ -124,7 +124,7 @@ def test_report_handles_no_usage(tmp_path: Path):
 
 
 def test_list_and_check_commands(tmp_path: Path):
-    base_db = tmp_path / "therapeutics" / "cannabis" / "cannabis_logistics.db"
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
 
     # Package A: has usage, likely not reorder yet
     rc = cli.main([
@@ -192,7 +192,7 @@ def test_list_and_check_commands(tmp_path: Path):
 
 
 def test_weigh_increase_rejected(tmp_path: Path):
-    base_db = tmp_path / "therapeutics" / "cannabis" / "cannabis_logistics.db"
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     # init with tare and initial
     assert cli.main([
         "init", "--id", "X", "--name", "Pkg X", "--form", "flower",
@@ -214,7 +214,7 @@ def test_weigh_increase_rejected(tmp_path: Path):
 
 
 def test_init_with_created_at(tmp_path: Path):
-    base_db = tmp_path / "therapeutics" / "cannabis" / "cannabis_logistics.db"
+    base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     custom_created_at = "2025-09-15T10:30:00Z"
     
     # init with custom created_at
