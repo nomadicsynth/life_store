@@ -18,7 +18,7 @@ import os
 import sqlite3
 import sys
 import math
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from tabulate import tabulate, SEPARATING_LINE
