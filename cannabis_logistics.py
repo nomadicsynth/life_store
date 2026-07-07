@@ -878,17 +878,11 @@ def cmd_usage(args: argparse.Namespace) -> int:
 
     # Build per-package usage data
     rows: List[Dict[str, Any]] = []
-    usage_total = 0.0  # grams per day (g/day)
-    thc_total = 0.0  # milligrams per day (mg/day)
-    cbd_total = 0.0  # milligrams per day (mg/day)
 
     for meta in packages:
         rate = usage_rate_g_per_day(meta, list_weighins(db_path, meta.id)) or 0.0
-        usage_total += rate
         thc_rate = (meta.thc_percent or 0.0) / 100 * rate * 1000
         cbd_rate = (meta.cbd_percent or 0.0) / 100 * rate * 1000
-        thc_total += thc_rate
-        cbd_total += cbd_rate
         price_per_gram = (meta.package_cost / meta.initial_net_g) if meta.package_cost and meta.initial_net_g and meta.initial_net_g > 0 else None
         cost_per_day = price_per_gram * rate if price_per_gram is not None else None
         rows.append({
@@ -902,10 +896,40 @@ def cmd_usage(args: argparse.Namespace) -> int:
             "cost_per_day": round(cost_per_day, 2) if cost_per_day is not None else None,
         })
 
+    # Replace zero-usage active packages with most-recently-finished packages
+    zero_usage_indices = [i for i, r in enumerate(rows) if r["usage_g_per_day"] == 0.0]
+    if zero_usage_indices:
+        n = len(zero_usage_indices)
+        all_packages = iter_packages(db_path, exclude_finished=False)
+        finished = [m for m in all_packages if m.finished]
+        finished.sort(key=lambda m: m.finished_date or "", reverse=True)
+        replacements = finished[:n]
+
+        for idx in zero_usage_indices:
+            rows.pop(idx)
+
+        for meta in replacements:
+            rate = usage_rate_g_per_day(meta, list_weighins(db_path, meta.id)) or 0.0
+            thc_rate = (meta.thc_percent or 0.0) / 100 * rate * 1000
+            cbd_rate = (meta.cbd_percent or 0.0) / 100 * rate * 1000
+            price_per_gram = (meta.package_cost / meta.initial_net_g) if meta.package_cost and meta.initial_net_g and meta.initial_net_g > 0 else None
+            cost_per_day = price_per_gram * rate if price_per_gram is not None else None
+            rows.append({
+                "package_id": meta.id,
+                "name": meta.name,
+                "thc_percent": meta.thc_percent or 0.0,
+                "cbd_percent": meta.cbd_percent or 0.0,
+                "usage_g_per_day": round(rate, 4),
+                "thc_mg_per_day": round(thc_rate, 2),
+                "cbd_mg_per_day": round(cbd_rate, 2),
+                "cost_per_day": round(cost_per_day, 2) if cost_per_day is not None else None,
+            })
+
+    # Compute totals once from the final list
     totals: Dict[str, Any] = {
-        "usage_g_per_day": round(usage_total, 4),
-        "thc_mg_per_day": round(thc_total, 2),
-        "cbd_mg_per_day": round(cbd_total, 2),
+        "usage_g_per_day": round(sum(r["usage_g_per_day"] for r in rows), 4),
+        "thc_mg_per_day": round(sum(r["thc_mg_per_day"] for r in rows), 2),
+        "cbd_mg_per_day": round(sum(r["cbd_mg_per_day"] for r in rows), 2),
         "cost_per_day": round(sum(r["cost_per_day"] for r in rows if r["cost_per_day"] is not None), 2),
     }
 
