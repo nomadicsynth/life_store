@@ -1074,7 +1074,7 @@ def cmd_history(args: argparse.Namespace) -> int:
                 )
                 notes.append(f"gross <= zero")
 
-            w.note = ", ".join(notes)
+            note_str = ", ".join(notes) if notes else w.note or ""
             
             history_points.append({
                 "timestamp": w.timestamp,
@@ -1082,7 +1082,7 @@ def cmd_history(args: argparse.Namespace) -> int:
                 "net_g": net_clipped,  # Use clipped for display
                 "net_g_unclipped": net,  # Keep unclipped for analysis
                 "usage_g": usage,
-                "note": w.note,
+                "note": note_str,
                 "is_initial": False
             })
             
