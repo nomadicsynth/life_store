@@ -274,19 +274,6 @@ def get_tare(meta: PackageMeta) -> Optional[float]:
     return None
 
 
-# ---------------- IO helpers ----------------
-def read_json(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def write_json(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-
-
 # ---------------- Core paths ----------------
 def db_path_from_env_or_arg(base: Optional[str]) -> Path:
     # Allow env override; default to repo-local data/therapeutics/cannabis/cannabis_logistics.db
