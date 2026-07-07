@@ -177,8 +177,6 @@ def migrate_database(conn: sqlite3.Connection, current_version: int) -> None:
     conn.commit()
 
 def create_tables(conn: sqlite3.Connection) -> None:
-    current_version = get_schema_version(conn)
-    
     conn.execute("""
         CREATE TABLE IF NOT EXISTS packages (
             id TEXT PRIMARY KEY,
