@@ -896,9 +896,9 @@ def cmd_usage(args: argparse.Namespace) -> int:
 
     # Compute totals once from the final list
     totals: Dict[str, Any] = {
-        "usage_g_per_day": round(sum(r["usage_g_per_day"] for r in rows), 4),
-        "thc_mg_per_day": round(sum(r["thc_mg_per_day"] for r in rows), 2),
-        "cbd_mg_per_day": round(sum(r["cbd_mg_per_day"] for r in rows), 2),
+        "usage_g_per_day": round(sum(r["usage_g_per_day"] for r in rows), 3),
+        "thc_mg_per_day": round(sum(r["thc_mg_per_day"] for r in rows), 0),
+        "cbd_mg_per_day": round(sum(r["cbd_mg_per_day"] for r in rows), 0),
         "cost_per_day": round(sum(r["cost_per_day"] for r in rows if r["cost_per_day"] is not None), 2),
     }
 
@@ -909,16 +909,16 @@ def cmd_usage(args: argparse.Namespace) -> int:
     # Tabular output
     headers = ["Package", "THC %", "CBD %", "g/day", "THC mg/day", "CBD mg/day", "Cost/day"]
     table_rows = [
-        [r["name"], r["thc_percent"], r["cbd_percent"], r["usage_g_per_day"],
-         r["thc_mg_per_day"], r["cbd_mg_per_day"], r["cost_per_day"]]
+        [r["name"], r["thc_percent"], r["cbd_percent"], f"{r['usage_g_per_day']:.2f}",
+         f"{r['thc_mg_per_day']:.2f}", f"{r['cbd_mg_per_day']:.2f}", f"{r['cost_per_day']:0.2f}"]
         for r in rows
     ]
     table_rows.append(SEPARATING_LINE)
-    table_rows.append(["TOTAL", "", "", totals["usage_g_per_day"], totals["thc_mg_per_day"], totals["cbd_mg_per_day"], totals["cost_per_day"]])
+    table_rows.append(["TOTAL", "", "", f"{totals['usage_g_per_day']:.2f}", f"{totals['thc_mg_per_day']:.2f}", f"{totals['cbd_mg_per_day']:.2f}", f"{totals['cost_per_day']:.2f}"])
 
     todays_date_str = now_utc().strftime("%Y-%m-%d")
     print(f"Active packages usage (as at {todays_date_str}):\n")
-    print(tabulate(table_rows, headers=headers, tablefmt="simple", floatfmt=[".2f", ".0f", ".0f", ".2f", ".0f", ".0f", ".2f"]))
+    print(tabulate(table_rows, headers=headers, tablefmt="simple"))
     if len(notes) > 0:
         print("\nNotes:")
     for note in notes:
