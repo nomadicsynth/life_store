@@ -2,14 +2,19 @@
 
 ## Setup commands
 
-- Create and activate a virtual environment:
-  - `python -m venv .venv`
+- Install dependencies with `uv`:
+  - `uv sync`
+  - This creates/updates the virtual environment and installs all dependencies from `pyproject.toml`.
+- Activate the virtual environment (if needed):
   - `source .venv/bin/activate` (Linux/macOS) or `.venv\Scripts\activate` (Windows)
-- Install deps: `pip install -r requirements.txt`
 - Start `inventory_app`: `python inventory_photo_capture_app.py`
 - Run tests: `pytest tests/`
 
-Note: If `.venv` is already present, just activate it and assume deps are installed.
+## Package management
+
+- This project uses `uv` for package management.
+- **Never manually edit dependencies in `pyproject.toml`**. Use `uv add <package>` to add dependencies and `uv remove <package>` to remove them.
+- Run `uv sync` after any dependency changes to update the virtual environment.
 
 ## Writing style for general text
 
