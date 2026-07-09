@@ -25,6 +25,7 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
 
     # init package
     rc = cli.main([
+        "--base", str(base_db),
         "init",
         "--id", "testpkg",
         "--name", "Test Pkg",
@@ -33,7 +34,6 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
         "--initial-gross-g", "28",
         "--transit-days", "5",
         "--safety-stock-days", "2",
-        "--base", str(base_db),
     ])
     assert rc == 0
 
@@ -42,20 +42,20 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
     t2 = datetime.now(timezone.utc)
 
     rc = cli.main([
+        "--base", str(base_db),
         "weigh",
         "--id", "testpkg",
         "--gross-g", "35.0",  # net 25.0
         "--timestamp", iso(t1),
-        "--base", str(base_db),
     ])
     assert rc == 0
 
     rc = cli.main([
+        "--base", str(base_db),
         "weigh",
         "--id", "testpkg",
         "--gross-g", "32.0",  # net 22.0
         "--timestamp", iso(t2),
-        "--base", str(base_db),
     ])
     assert rc == 0
 
@@ -64,7 +64,7 @@ def test_init_weigh_report(tmp_path: Path, monkeypatch):
     old_stdout = sys.stdout
     sys.stdout = cap
     try:
-        rc = cli.main(["report", "--id", "testpkg", "--json", "--base", str(base_db)])
+        rc = cli.main(["--base", str(base_db), "report", "--id", "testpkg", "--json"])
     finally:
         sys.stdout = old_stdout
     assert rc == 0
@@ -80,6 +80,7 @@ def test_report_handles_no_usage(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     # init only, no weigh-ins
     rc = cli.main([
+        "--base", str(base_db),
         "init",
         "--id", "empty",
         "--name", "Empty",
@@ -88,7 +89,6 @@ def test_report_handles_no_usage(tmp_path: Path):
         "--initial-gross-g", "20",
         "--transit-days", "3",
         "--safety-stock-days", "2",
-        "--base", str(base_db),
     ])
     assert rc == 0
 
@@ -97,7 +97,7 @@ def test_report_handles_no_usage(tmp_path: Path):
     old_stdout = sys.stdout
     sys.stdout = cap
     try:
-        rc = cli.main(["report", "--id", "empty", "--json", "--base", str(base_db)])
+        rc = cli.main(["--base", str(base_db), "report", "--id", "empty", "--json"])
         out = json.loads("".join(cap.lines))
     finally:
         sys.stdout = old_stdout
@@ -111,37 +111,37 @@ def test_list_and_check_commands(tmp_path: Path):
 
     # Package A: has usage, likely not reorder yet
     rc = cli.main([
+        "--base", str(base_db),
         "init", "--id", "A", "--name", "Pkg A", "--form", "flower",
         "--initial-net-g", "18", "--initial-gross-g", "28", "--transit-days", "3", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ])
     assert rc == 0
     # two weigh-ins one week apart to establish usage
     t1 = datetime.now(timezone.utc) - timedelta(days=14)
     t2 = datetime.now(timezone.utc) - timedelta(days=7)
-    assert cli.main(["weigh", "--id", "A", "--gross-g", "36.0", "--timestamp", iso(t1), "--base", str(base_db)]) == 0
-    assert cli.main(["weigh", "--id", "A", "--gross-g", "34.0", "--timestamp", iso(t2), "--base", str(base_db)]) == 0
+    assert cli.main(["--base", str(base_db), "weigh", "--id", "A", "--gross-g", "36.0", "--timestamp", iso(t1)]) == 0
+    assert cli.main(["--base", str(base_db), "weigh", "--id", "A", "--gross-g", "34.0", "--timestamp", iso(t2)]) == 0
 
     # Package B: small remaining, force reorder
     rc = cli.main([
+        "--base", str(base_db),
         "init", "--id", "B", "--name", "Pkg B", "--form", "flower",
         "--initial-net-g", "8", "--initial-gross-g", "18", "--transit-days", "7", "--safety-stock-days", "3",
-        "--base", str(base_db),
     ])
     assert rc == 0
     # create high usage and low remaining so reorder is in the past
     t3 = datetime.now(timezone.utc) - timedelta(days=10)
     t4 = datetime.now(timezone.utc)
     # initial net if provided is 8g (18-10). Weigh down to 1g net over 10 days.
-    assert cli.main(["weigh", "--id", "B", "--gross-g", "14.0", "--timestamp", iso(t3), "--base", str(base_db)]) == 0  # net 4g
-    assert cli.main(["weigh", "--id", "B", "--gross-g", "11.0", "--timestamp", iso(t4), "--base", str(base_db)]) == 0  # net 1g
+    assert cli.main(["--base", str(base_db), "weigh", "--id", "B", "--gross-g", "14.0", "--timestamp", iso(t3)]) == 0  # net 4g
+    assert cli.main(["--base", str(base_db), "weigh", "--id", "B", "--gross-g", "11.0", "--timestamp", iso(t4)]) == 0  # net 1g
 
     # list JSON
     cap = Capturer()
     old_stdout = sys.stdout
     sys.stdout = cap
     try:
-        rc = cli.main(["list", "--json", "--base", str(base_db)])
+        rc = cli.main(["--base", str(base_db), "list", "--json"])
         out = json.loads("".join(cap.lines))
     finally:
         sys.stdout = old_stdout
@@ -151,18 +151,18 @@ def test_list_and_check_commands(tmp_path: Path):
     assert {"A", "B"}.issubset(ids)
 
     # check all should return 1 because B needs reorder
-    rc = cli.main(["check", "--base", str(base_db)])
+    rc = cli.main(["--base", str(base_db), "check"])
     assert rc == 1
 
     # check single A likely OK (return 0)
-    rc = cli.main(["check", "--id", "A", "--base", str(base_db)])
+    rc = cli.main(["--base", str(base_db), "check", "--id", "A"])
     assert rc in (0, 1)  # allow either depending on timing, but ensure JSON reflects same
 
     # check single B JSON -> reorder_now True
     cap_b = Capturer()
     sys.stdout = cap_b
     try:
-        rc_b = cli.main(["check", "--id", "B", "--json", "--base", str(base_db)])
+        rc_b = cli.main(["--base", str(base_db), "check", "--id", "B", "--json"])
         out_b = json.loads("".join(cap_b.lines))
     finally:
         sys.stdout = old_stdout
@@ -176,21 +176,21 @@ def test_weigh_increase_rejected(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     # init with tare and initial
     assert cli.main([
+        "--base", str(base_db),
         "init", "--id", "X", "--name", "Pkg X", "--form", "flower",
         "--initial-net-g", "20", "--initial-gross-g", "30", "--transit-days", "3", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ]) == 0
     # weigh at t1 net 18g
     from datetime import datetime, timezone, timedelta
     t1 = datetime.now(timezone.utc) - timedelta(days=2)
-    assert cli.main(["weigh", "--id", "X", "--gross-g", "28.0", "--timestamp", iso(t1), "--base", str(base_db)]) == 0
+    assert cli.main(["--base", str(base_db), "weigh", "--id", "X", "--gross-g", "28.0", "--timestamp", iso(t1)]) == 0
     # attempt to weigh later with higher gross (increase): reject
     t2 = datetime.now(timezone.utc)
-    rc = cli.main(["weigh", "--id", "X", "--gross-g", "29.0", "--timestamp", iso(t2), "--base", str(base_db)])
+    rc = cli.main(["--base", str(base_db), "weigh", "--id", "X", "--gross-g", "29.0", "--timestamp", iso(t2)])
     assert rc == 1
     # also reject a backdated increase between existing points
     t_mid = t1 + timedelta(days=1)
-    rc2 = cli.main(["weigh", "--id", "X", "--gross-g", "28.5", "--timestamp", iso(t_mid), "--base", str(base_db)])
+    rc2 = cli.main(["--base", str(base_db), "weigh", "--id", "X", "--gross-g", "28.5", "--timestamp", iso(t_mid)])
     assert rc2 == 1
 
 
@@ -200,6 +200,7 @@ def test_init_with_created_at(tmp_path: Path):
     
     # init with custom created_at
     rc = cli.main([
+        "--base", str(base_db),
         "init",
         "--id", "past_pkg",
         "--name", "Past Package",
@@ -209,7 +210,6 @@ def test_init_with_created_at(tmp_path: Path):
         "--transit-days", "5",
         "--safety-stock-days", "2",
         "--created-at", custom_created_at,
-        "--base", str(base_db),
     ])
     assert rc == 0
     
@@ -218,7 +218,7 @@ def test_init_with_created_at(tmp_path: Path):
     old_stdout = sys.stdout
     sys.stdout = cap
     try:
-        rc = cli.main(["report", "--id", "past_pkg", "--json", "--base", str(base_db)])
+        rc = cli.main(["--base", str(base_db), "report", "--id", "past_pkg", "--json"])
     finally:
         sys.stdout = old_stdout
     assert rc == 0
@@ -229,11 +229,11 @@ def test_init_with_created_at(tmp_path: Path):
     # add a weigh-in to test usage calculation from custom created_at
     weigh_at = "2025-09-20T10:30:00Z"  # 5 days later
     rc = cli.main([
+        "--base", str(base_db),
         "weigh",
         "--id", "past_pkg",
         "--gross-g", "24.9",
         "--timestamp", weigh_at,
-        "--base", str(base_db),
     ])
     assert rc == 0
     
@@ -241,7 +241,7 @@ def test_init_with_created_at(tmp_path: Path):
     cap2 = Capturer()
     sys.stdout = cap2
     try:
-        rc = cli.main(["report", "--id", "past_pkg", "--json", "--base", str(base_db)])
+        rc = cli.main(["--base", str(base_db), "report", "--id", "past_pkg", "--json"])
     finally:
         sys.stdout = old_stdout
     assert rc == 0
@@ -254,21 +254,21 @@ def test_edit_single_field(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     # Init a package
     assert cli.main([
+        "--base", str(base_db),
         "init", "--id", "editme", "--name", "Original", "--form", "flower",
         "--initial-net-g", "18", "--initial-gross-g", "28",
         "--transit-days", "2", "--dispensary-processing-days", "1",
         "--post-office-processing-days", "1", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ]) == 0
     # Edit just the name
-    rc = cli.main(["edit", "--id", "editme", "--name", "Renamed", "--base", str(base_db)])
+    rc = cli.main(["--base", str(base_db), "edit", "--id", "editme", "--name", "Renamed"])
     assert rc == 0
     # Verify via list JSON
     cap = Capturer()
     old = sys.stdout
     sys.stdout = cap
     try:
-        cli.main(["list", "--json", "--base", str(base_db)])
+        cli.main(["--base", str(base_db), "list", "--json"])
     finally:
         sys.stdout = old
     out_list = json.loads("".join(cap.lines))
@@ -279,20 +279,20 @@ def test_edit_single_field(tmp_path: Path):
 def test_edit_multiple_fields(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     assert cli.main([
+        "--base", str(base_db),
         "init", "--id", "multi", "--name", "Multi", "--form", "flower",
         "--initial-net-g", "18", "--initial-gross-g", "28",
         "--transit-days", "2", "--dispensary-processing-days", "1",
         "--post-office-processing-days", "1", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ]) == 0
     # Edit several fields at once
     rc = cli.main([
+        "--base", str(base_db),
         "edit", "--id", "multi",
         "--name", "Changed", "--form", "oil",
         "--transit-days", "5", "--safety-stock-days", "4",
         "--thc-percent", "20.0", "--cbd-percent", "5.0",
         "--package-cost", "150.0",
-        "--base", str(base_db),
     ])
     assert rc == 0
     # Verify via list JSON
@@ -300,7 +300,7 @@ def test_edit_multiple_fields(tmp_path: Path):
     old = sys.stdout
     sys.stdout = cap
     try:
-        cli.main(["list", "--json", "--base", str(base_db)])
+        cli.main(["--base", str(base_db), "list", "--json"])
     finally:
         sys.stdout = old
     out = json.loads("".join(cap.lines))
@@ -311,40 +311,40 @@ def test_edit_multiple_fields(tmp_path: Path):
 def test_edit_no_fields_returns_error(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     assert cli.main([
+        "--base", str(base_db),
         "init", "--id", "none", "--name", "None", "--form", "flower",
         "--initial-net-g", "18", "--initial-gross-g", "28",
         "--transit-days", "2", "--dispensary-processing-days", "1",
         "--post-office-processing-days", "1", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ]) == 0
-    rc = cli.main(["edit", "--id", "none", "--base", str(base_db)])
+    rc = cli.main(["--base", str(base_db), "edit", "--id", "none"])
     assert rc == 1
 
 
 def test_edit_nonexistent_package(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
-    rc = cli.main(["edit", "--id", "ghost", "--name", "Ghost", "--base", str(base_db)])
+    rc = cli.main(["--base", str(base_db), "edit", "--id", "ghost", "--name", "Ghost"])
     assert rc == 1
 
 
 def test_edit_boolean_fields(tmp_path: Path):
     base_db = tmp_path / "therapeutics" / "cannabis" / "test_cannabis_logistics.db"
     assert cli.main([
+        "--base", str(base_db),
         "init", "--id", "boolpkg", "--name", "Bool", "--form", "flower",
         "--initial-net-g", "18", "--initial-gross-g", "28",
         "--transit-days", "2", "--dispensary-processing-days", "1",
         "--post-office-processing-days", "1", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ]) == 0
     # Mark as finished via edit
-    rc = cli.main(["edit", "--id", "boolpkg", "--finished", "true", "--base", str(base_db)])
+    rc = cli.main(["--base", str(base_db), "edit", "--id", "boolpkg", "--finished", "true"])
     assert rc == 0
     # Verify it's excluded from default list
     cap = Capturer()
     old = sys.stdout
     sys.stdout = cap
     try:
-        cli.main(["list", "--json", "--base", str(base_db)])
+        cli.main(["--base", str(base_db), "list", "--json"])
     finally:
         sys.stdout = old
     out = json.loads("".join(cap.lines))
@@ -353,7 +353,7 @@ def test_edit_boolean_fields(tmp_path: Path):
     cap2 = Capturer()
     sys.stdout = cap2
     try:
-        cli.main(["list", "--json", "--show-finished", "--base", str(base_db)])
+        cli.main(["--base", str(base_db), "list", "--json", "--show-finished"])
     finally:
         sys.stdout = old
     out2 = json.loads("".join(cap2.lines))
@@ -367,39 +367,43 @@ def test_weigh_too_small_decrease_rejected(tmp_path: Path):
 
     # Init a package
     assert cli.main([
+        "--base", str(base_db),
         "init", "--id", "smalldec", "--name", "Small Dec", "--form", "flower",
         "--initial-net-g", "18", "--initial-gross-g", "28",
         "--transit-days", "2", "--dispensary-processing-days", "1",
         "--post-office-processing-days", "1", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ]) == 0
 
     # First weigh-in at 25.0g gross
     t1 = datetime.now(timezone.utc) - timedelta(days=3)
     assert cli.main([
+        "--base", str(base_db),
         "weigh", "--id", "smalldec", "--gross-g", "25.0",
-        "--timestamp", iso(t1), "--base", str(base_db),
+        "--timestamp", iso(t1),
     ]) == 0
 
     # Second weigh-in only 0.05g lower should be rejected
     t2 = datetime.now(timezone.utc)
     rc = cli.main([
+        "--base", str(base_db),
         "weigh", "--id", "smalldec", "--gross-g", "24.95",
-        "--timestamp", iso(t2), "--base", str(base_db),
+        "--timestamp", iso(t2),
     ])
     assert rc == 1
 
     # Test the boundary: a decrease of exactly 0.1g should succeed
     rc = cli.main([
+        "--base", str(base_db),
         "weigh", "--id", "smalldec", "--gross-g", "24.85",
-        "--timestamp", iso(t2), "--base", str(base_db),
+        "--timestamp", iso(t2),
     ])
     assert rc == 0
 
     # A proper decrease (>= 0.1g) should succeed
     rc = cli.main([
+        "--base", str(base_db),
         "weigh", "--id", "smalldec", "--gross-g", "24.0",
-        "--timestamp", iso(t2), "--base", str(base_db),
+        "--timestamp", iso(t2),
     ])
     assert rc == 0
 
@@ -410,21 +414,22 @@ def test_weigh_finished_package_rejected(tmp_path: Path):
 
     # Init a package
     assert cli.main([
+        "--base", str(base_db),
         "init", "--id", "done", "--name", "Done", "--form", "flower",
         "--initial-net-g", "18", "--initial-gross-g", "28",
         "--transit-days", "2", "--dispensary-processing-days", "1",
         "--post-office-processing-days", "1", "--safety-stock-days", "2",
-        "--base", str(base_db),
     ]) == 0
 
     # Mark it finished via the finish command
     assert cli.main([
-        "finish", "--id", "done", "--base", str(base_db),
+        "--base", str(base_db),
+        "finish", "--id", "done",
     ]) == 0
 
     # Try to weigh a finished package - should be rejected
     rc = cli.main([
-        "weigh", "--id", "done", "--gross-g", "20.0",
         "--base", str(base_db),
+        "weigh", "--id", "done", "--gross-g", "20.0",
     ])
     assert rc == 1
