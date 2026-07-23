@@ -873,6 +873,18 @@ def cmd_usage(args: argparse.Namespace) -> int:
     for meta in packages:
         rows.append(_build_usage_row(meta, list_weighins(db_path, meta.id)))
 
+    # Remove packages with no weighins in the last seven days
+    seven_days_ago = now_utc() - timedelta(days=7)
+    for idx in reversed(range(len(rows))):
+        meta = next((m for m in packages if m.id == rows[idx]["package_id"]), None)
+        if meta is None:
+            continue
+        weighins = list_weighins(db_path, meta.id)
+        recent_weighins = [w for w in weighins if parse_iso8601_z(w.timestamp) >= seven_days_ago]
+        if not recent_weighins:
+            removed_package = rows.pop(idx)
+            notes.append(f"Package '{removed_package['name']}' (ID: {removed_package['package_id']}) excluded - no weigh-ins in the last 7 days")
+
     # Replace zero-usage active packages with most-recently-finished packages
     zero_usage_indices = [i for i, r in enumerate(rows) if r["usage_g_per_day"] == 0.0]
     if zero_usage_indices:
