@@ -695,9 +695,9 @@ def cmd_weigh(args: argparse.Namespace) -> int:
         return 1
 
     # Reject too-small decreases in gross weight; less than 0.1 grams is likely a repeated weigh-in. This is a heuristic to avoid accidental double entries.
-    if prev_gross is not None and (prev_gross - args.gross_g) < 0.1:
+    if prev_gross is not None and (prev_gross - args.gross_g) < 0.1 and not args.force:
         print(
-            f"Error: gross decreased by less than 0.1g ({prev_gross:.2f}g -> {args.gross_g:.2f}g) at or before {to_iso_z(ts)}; rejecting entry.",
+            f"Error: gross decreased by less than 0.1g ({prev_gross:.2f}g -> {args.gross_g:.2f}g) at or before {to_iso_z(ts)}; rejecting entry. Force with --force.",
             file=sys.stderr,
         )
         return 1
@@ -1670,6 +1670,7 @@ def build_parser() -> argparse.ArgumentParser:
     pw.add_argument("--timestamp", default=None, help="ISO-8601 timestamp; default now UTC")
     pw.add_argument("--note", default=None, help="Optional note")
     pw.add_argument("--finished", action="store_true", help="Mark the package as finished after this weigh-in")
+    pw.add_argument("--force", action="store_true", help="Force weigh-in when delta is less than 0.1g (default: warn and reject)")
     pw.set_defaults(func=cmd_weigh)
 
     # unweigh
